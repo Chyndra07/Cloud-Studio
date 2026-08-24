@@ -1,0 +1,22 @@
+{
+  "short_name": "GaleriFotoQR",
+  "name": "GaleriFotoQR Cloud Studio",
+  "description": "Multi-tenant cloud studio photo gallery platform with Google Drive storage & QR delivery",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#090d16",
+  "theme_color": "#0f172a",
+  "display": "standalone",
+  "orientation": "portrait"
+}

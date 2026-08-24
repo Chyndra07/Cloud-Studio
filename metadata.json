@@ -1,0 +1,8 @@
+{
+  "name": "Master Seven Cloud",
+  "description": "Multi-tenant cloud studio photo gallery platform powered by Google Drive per user with QR code customer delivery, custom branding, and instant mobile galleries.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

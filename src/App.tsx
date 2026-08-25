@@ -305,11 +305,26 @@ export default function App() {
   };
 
   // Handle saving branding profile
+  // Simpan profil pengguna aktif terlebih dahulu agar UI tidak menunggu
+  // sinkronisasi seluruh tenant. Sinkronisasi global dijalankan di background.
   const handleSaveProfile = async (updatedProfile: StudioProfile) => {
-    if (!currentUser) return;
-    saveStudioProfile(currentUser.id, updatedProfile);
+    if (!currentUser) {
+      throw new Error('Pengguna tidak aktif. Silakan login kembali.');
+    }
+
+    // Penyimpanan profil utama untuk pengguna aktif.
+    await Promise.resolve(saveStudioProfile(currentUser.id, updatedProfile));
+
+    // Perbarui UI segera setelah profil utama berhasil disimpan.
     setStudioProfile(updatedProfile);
-    await syncAllTenantsToServer();
+
+    // Sinkronisasi tambahan tidak boleh menahan tombol "Simpan".
+    void syncAllTenantsToServer().catch((err: any) => {
+      console.warn(
+        '[BACKGROUND_TENANT_SYNC_WARNING] Profil sudah tersimpan, tetapi sinkronisasi tambahan gagal:',
+        err?.message || err
+      );
+    });
   };
 
   // Handle creating a new album

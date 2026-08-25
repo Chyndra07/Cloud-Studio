@@ -129,13 +129,44 @@ export const BrandingSettings: React.FC<BrandingSettingsProps> = ({
 
     if (currentUser?.id) {
       setIsUploadingLogo(true);
-      await deleteStudioLogo(currentUser.id);
-      setIsUploadingLogo(false);
+      try {
+        await Promise.race([
+          deleteStudioLogo(currentUser.id),
+          new Promise((_, reject) =>
+            window.setTimeout(
+              () => reject(new Error('Penghapusan logo terlalu lama. Silakan coba lagi.')),
+              15000
+            )
+          ),
+        ]);
+      } catch (err: any) {
+        console.error('[BRANDING_DELETE_LOGO_ERROR]', err);
+        setErrorMessage(err?.message || 'Gagal menghapus logo studio.');
+      } finally {
+        setIsUploadingLogo(false);
+      }
     }
+  };
+
+  // Fail-safe: mencegah proses async membuat tombol loading selamanya.
+  const withTimeout = <T,>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    message: string
+  ): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        window.setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isSaving || isUploadingLogo) return;
+
     setErrorMessage(null);
     setSuccessNotification(null);
     setIsSaving(true);
@@ -143,21 +174,34 @@ export const BrandingSettings: React.FC<BrandingSettingsProps> = ({
     try {
       let finalLogoUrl = form.studioLogoUrl || form.logoUrl;
 
-      // If user selected a new file, upload it first
-      if (selectedFile && currentUser?.id) {
-        setIsUploadingLogo(true);
-        const uploadResult = await uploadStudioLogo(currentUser.id, selectedFile);
-        setIsUploadingLogo(false);
-
-        if (!uploadResult.success) {
-          setErrorMessage(uploadResult.error || 'Gagal mengunggah logo studio ke server.');
-          setIsSaving(false);
-          return;
+      if (selectedFile) {
+        if (!currentUser?.id) {
+          throw new Error(
+            'Sesi pengguna tidak ditemukan. Silakan login ulang sebelum mengunggah logo.'
+          );
         }
 
-        finalLogoUrl = uploadResult.logoUrl;
-        setLogoPreview(uploadResult.logoUrl || null);
-        setSelectedFile(null);
+        setIsUploadingLogo(true);
+
+        try {
+          const uploadResult = await withTimeout(
+            uploadStudioLogo(currentUser.id, selectedFile),
+            30000,
+            'Upload logo terlalu lama. Periksa koneksi atau konfigurasi penyimpanan.'
+          );
+
+          if (!uploadResult.success) {
+            throw new Error(
+              uploadResult.error || 'Gagal mengunggah logo studio ke server.'
+            );
+          }
+
+          finalLogoUrl = uploadResult.logoUrl;
+          setLogoPreview(uploadResult.logoUrl || null);
+          setSelectedFile(null);
+        } finally {
+          setIsUploadingLogo(false);
+        }
       }
 
       const updatedProfile: StudioProfile = {
@@ -167,13 +211,21 @@ export const BrandingSettings: React.FC<BrandingSettingsProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      setForm(updatedProfile);
-      await onSaveProfile(updatedProfile);
+      await withTimeout(
+        Promise.resolve(onSaveProfile(updatedProfile)),
+        15000,
+        'Penyimpanan profil terlalu lama. Database tidak memberikan respons.'
+      );
 
-      setSuccessNotification('Logo studio & profil branding berhasil diperbarui.');
-      setTimeout(() => setSuccessNotification(null), 4000);
+      setForm(updatedProfile);
+      setSuccessNotification('Profil & branding studio berhasil disimpan.');
+      window.setTimeout(() => setSuccessNotification(null), 4000);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Terjadi kesalahan saat menyimpan pengaturan.');
+      console.error('[BRANDING_SAVE_ERROR]', err);
+      setErrorMessage(
+        err?.message ||
+          'Terjadi kesalahan saat menyimpan Profil & Branding Studio.'
+      );
     } finally {
       setIsSaving(false);
       setIsUploadingLogo(false);

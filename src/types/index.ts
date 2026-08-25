@@ -1,135 +1,108 @@
-export type ViewMode = 
-  | 'dashboard'
-  | 'albums'
-  | 'album-detail'
-  | 'trash'
-  | 'drive-status'
-  | 'branding'
-  | 'settings'
-  | 'help'
-  | 'admin-saas'
-  | 'public-gallery';
-
-export interface UserAccount {
-  id: string; // Google sub / unique ID
-  email: string;
-  name: string;
-  avatarUrl?: string;
-  accessToken?: string;
-  tokenExpiresAt?: number;
-  isConnectedToDrive: boolean;
-  driveRootFolderId?: string;
-  driveAlbumFolderId?: string;
-  role: 'studio_owner' | 'platform_admin';
-  subscriptionTier: 'starter' | 'pro' | 'agency';
-  subscriptionStatus: 'active' | 'trial' | 'expired';
-  createdAt: string;
-}
-
 export interface StudioProfile {
+  uid: string;
   studioName: string;
-  tagline: string;
+  ownerEmail: string;
+  ownerName: string;
+  photoURL?: string;
   logoUrl?: string;
-  studioLogoUrl?: string; // Standard alias for studioLogoUrl
-  studioLogoPath?: string;
-  whatsappNumber: string;
-  instagram: string;
-  website: string;
-  address: string;
-  accentColor: string; // Hex color (e.g., #f59e0b)
-  watermarkEnabled: boolean;
-  watermarkText: string;
-  watermarkPosition: 'bottom-right' | 'bottom-left' | 'center' | 'top-right';
-  galleryFooterText: string;
-  welcomeMessage: string;
-  allowClientDownload: boolean;
-  allowBatchZipDownload: boolean;
-  customGalleryDomain?: string; // Custom public base URL e.g. https://galeri.luminastudio.com
-  updatedAt?: string;
-}
-
-export interface Album {
-  id: string;
-  galleryId: string; // Random unguessable URL slug (e.g. GFQ-7a9b2c)
-  ownerId: string; // Must match UserAccount.id for isolation
-  customerName: string;
-  eventName: string;
-  eventDate: string;
-  description?: string;
-  coverPhotoUrl?: string;
-  isPasswordProtected: boolean;
-  passwordHash?: string;
-  isPublished?: boolean;
-  status?: string;
-  pinEnabled?: boolean;
-  pinHash?: string;
-  expiresAt?: string; // ISO date or null
-  expiryAction?: 'disable' | 'trash'; // Action when expired
-  driveFolderId?: string;
-  driveFolderUrl?: string;
-  displayQuality: 'light' | 'hd';
-  customFolders?: string[]; // Defined folders in album (including 0-photo empty folders)
-  photosCount: number;
-  viewsCount: number;
-  downloadsCount: number;
-  isDeleted: boolean; // Soft delete
-  deletedAt?: string;
-  publishedAt?: string;
+  whatsappNumber?: string;
+  emailContact?: string;
+  address?: string;
+  website?: string;
+  brandColor?: string;
+  driveRootFolderId?: string;
+  driveRootFolderName?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface Photo {
-  id: string;
-  albumId: string;
-  ownerId: string;
-  filename: string;
-  fileSize: number; // in bytes
-  size?: number; // alias for fileSize
-  mimeType: string;
+export type ExpirationAction = 'disable' | 'trash';
+
+export interface PhotoItem {
+  id: string; // Drive file ID or generated unique ID
   driveFileId: string;
-  thumbnailUrl: string;
-  previewUrl: string;
-  downloadUrl: string;
+  name: string;
+  size: number; // in bytes
+  mimeType: string;
+  webViewLink?: string;
+  webContentLink?: string;
+  thumbnailUrl?: string;
+  downloadUrl?: string;
+  uploadedAt: string;
   width?: number;
   height?: number;
-  isDeleted: boolean;
-  deletedAt?: string;
-  uploadedAt: string;
-  folderName?: string; // Root folder name e.g. "01. Akad"
-  folderPath?: string; // Full relative path e.g. "01. Akad/Persiapan" or "01. Akad"
-  subfolder?: string; // Nested subfolder name e.g. "Persiapan"
-  driveFolderId?: string; // Specific Google Drive folder ID for this subfolder
 }
 
-export interface DriveStorageQuota {
-  limitBytes: number;
-  usageBytes: number;
-  usageInDriveBytes: number;
-  usageInDriveTrashBytes: number;
-  userEmail: string;
-  userName: string;
-  lastSyncedAt: string;
+export interface Album {
+  albumId: string;
+  galleryId: string; // e.g. GFQ-4MUFZE
+  ownerUid: string;
+  studioId: string;
+  albumName: string;
+  clientName: string;
+  eventName: string;
+  eventDate?: string;
+  driveFolderId: string;
+  driveFolderName?: string;
+  pin: string; // 4 digits or empty if disabled
+  isPinEnabled: boolean;
+  expirationDate: string; // ISO date string
+  expirationAction: ExpirationAction;
+  status: 'active' | 'expired' | 'disabled';
+  isPublished: boolean;
+  photoCount: number;
+  coverPhotoUrl?: string;
+  photos?: PhotoItem[];
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface UploadProgress {
-  totalFiles: number;
-  uploadedFiles: number;
-  currentFileName: string;
-  percent: number;
-  isUploading: boolean;
-  error?: string;
+export interface PublicGalleryData {
+  galleryId: string;
+  albumName: string;
+  clientName: string;
+  eventName: string;
+  eventDate?: string;
+  pin: string;
+  isPinRequired: boolean;
+  expirationDate: string;
+  isExpired: boolean;
+  status: 'active' | 'expired' | 'disabled';
+  photoCount: number;
+  coverPhotoUrl?: string;
+  photos: PhotoItem[];
+  studio: {
+    studioName: string;
+    logoUrl?: string;
+    whatsappNumber?: string;
+    emailContact?: string;
+    brandColor?: string;
+    website?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface StudioTenantRecord {
-  id: string;
-  studioName: string;
-  ownerName: string;
-  email: string;
-  plan: 'starter' | 'pro' | 'agency';
-  status: 'active' | 'trial' | 'suspended';
-  activeAlbumsCount: number;
-  totalPhotosCount: number;
-  driveConnected: boolean;
-  joinedAt: string;
+export interface ClientSelection {
+  galleryId: string;
+  selectedPhotoIds: string[];
+  notes: Record<string, string>; // photoId -> custom edit/print note
+  updatedAt: string;
+}
+
+export interface TrashItem {
+  albumId: string;
+  galleryId: string;
+  albumName: string;
+  clientName: string;
+  photoCount: number;
+  driveFolderId: string;
+  deletedAt: string;
+  originalAlbumData: Album;
+}
+
+export interface AppConfig {
+  frontendPublicUrl: string;
+  apiBaseUrl: string;
+  driveRootFolderName: string;
 }

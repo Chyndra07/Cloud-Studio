@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Studios collection: studio profile, albums, and trash
+    match /studios/{studioId} {
+      allow read, write: if true;
+      
+      match /{allSubcollections=**} {
+        allow read, write: if true;
+      }
+    }
+    
+    // Public Galleries: public access for customers and admin sync across all domains
+    match /public_galleries/{galleryId} {
+      allow read, write: if true;
+      
+      match /{allSubcollections=**} {
+        allow read, write: if true;
+      }
+    }
+  }
+}

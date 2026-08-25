@@ -4,12 +4,7 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
-  const appUrl = process.env.APP_URL || process.env.VITE_APP_URL || '';
-return {
-    base: '/Cloud-Studio/',
-    define: {
-      'import.meta.env.VITE_APP_URL': JSON.stringify(appUrl),
-    },
+  return {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

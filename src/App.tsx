@@ -1,704 +1,444 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  ViewMode, 
-  UserAccount, 
-  StudioProfile, 
-  Album, 
-  Photo, 
-  DriveStorageQuota 
-} from './types';
-import { 
-  initializeStorage, 
-  DEFAULT_STUDIO_PROFILE,
-  getStudioProfile, 
-  saveStudioProfile,
-  fetchRemoteStudioProfile,
-  getAlbumsForOwner, 
-  getAllPhotosForOwner, 
-  getTrashForOwner, 
-  createAlbum, 
-  updateAlbum,
-  moveAlbumToTrash, 
-  restoreAlbumFromTrash, 
-  permanentlyDeleteAlbum, 
-  addPhotosToAlbum, 
-  movePhotoToTrash, 
-  restorePhotoFromTrash, 
-  permanentlyDeletePhoto, 
-  emptyTrash,
-  syncPublicGalleryToServer,
-  syncAllTenantsToServer
-} from './services/storageService';
-import { 
-  getActiveUserSession, 
-  saveActiveUserSession, 
-  clearUserSession, 
-  getStoredUserToken, 
-  requestGoogleDriveAuth,
-  checkAndHandleRedirectResult
-} from './services/googleAuth';
-import { 
-  getDriveStorageQuota, 
-  initAppDriveStructure 
-} from './services/googleDrive';
-
-import { Navbar } from './components/Navbar';
-import { Sidebar } from './components/Sidebar';
-import { DashboardHome } from './components/DashboardHome';
-import { AlbumList } from './components/AlbumList';
-import { AlbumDetail } from './components/AlbumDetail';
-import { CreateAlbumModal } from './components/CreateAlbumModal';
-import { UploadFolderModal } from './components/UploadFolderModal';
-import { AlbumSettingsModal } from './components/AlbumSettingsModal';
-import { QRCodeModal } from './components/QRCodeModal';
-import { DriveStatusView } from './components/DriveStatusView';
-import { BrandingSettings } from './components/BrandingSettings';
-import { TrashBinView } from './components/TrashBinView';
-import { AdminSaaSDashboard } from './components/AdminSaaSDashboard';
-import { HelpAndGuide } from './components/HelpAndGuide';
-import { AuthModal } from './components/AuthModal';
-import { PublicCustomerGallery } from './components/PublicCustomerGallery';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { parseGallerySlugFromLocation } from './services/urlHelper';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useAuth } from './hooks/useAuth';
+import { useStudioData } from './hooks/useStudioData';
+import { Album } from './types';
+import { Sidebar } from './components/layout/Sidebar';
+import { Navbar } from './components/layout/Navbar';
+import { MobileNav } from './components/layout/MobileNav';
+import { CreateAlbumModal } from './components/albums/CreateAlbumModal';
+import { QRCodeModal } from './components/qr/QRCodeModal';
+import { DashboardPage } from './pages/DashboardPage';
+import { AlbumsPage } from './pages/AlbumsPage';
+import { AlbumDetailPage } from './pages/AlbumDetailPage';
+import { TrashPage } from './pages/TrashPage';
+import { BrandingPage } from './pages/BrandingPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { PublicGalleryPage } from './pages/PublicGalleryPage';
+import { LicenseGuard } from './license/LicenseGuard';
+import {
+  Camera,
+  HardDrive,
+  QrCode,
+  ShieldCheck,
+  Zap,
+  Globe,
+  Lock,
+  ArrowRight,
+  AlertCircle,
+} from 'lucide-react';
 
 export default function App() {
-  // Initialize storage seeds & handle OAuth Redirect Result
+  // Hash Routing State
+  const [currentHash, setCurrentHash] = useState<string>(
+    typeof window !== 'undefined' ? window.location.hash : ''
+  );
+
   useEffect(() => {
-    initializeStorage();
-
-    // Check if returning from a Google OAuth Redirect sign-in flow (Skipped on Customer routes)
-    const isCustomerRoute = Boolean(parseGallerySlugFromLocation());
-    if (isCustomerRoute) {
-      return;
-    }
-
-    checkAndHandleRedirectResult()
-      .then(async (redirectAuth) => {
-        if (redirectAuth) {
-          const { accessToken, userInfo } = redirectAuth;
-          let driveRootFolderId: string | undefined = undefined;
-          let driveAlbumFolderId: string | undefined = undefined;
-
-          try {
-            const driveInit = await initAppDriveStructure(accessToken);
-            driveRootFolderId = driveInit.rootFolderId;
-            driveAlbumFolderId = driveInit.albumsFolderId;
-          } catch (err: any) {
-            console.warn('Drive structure initialization warning on redirect:', err?.message);
-          }
-
-          const userAccount: UserAccount = {
-            id: userInfo.id,
-            email: userInfo.email,
-            name: userInfo.name,
-            avatarUrl: userInfo.picture,
-            accessToken,
-            tokenExpiresAt: Date.now() + 3600 * 1000,
-            isConnectedToDrive: true,
-            driveRootFolderId,
-            driveAlbumFolderId,
-            role: 'studio_owner',
-            subscriptionTier: 'pro',
-            subscriptionStatus: 'active',
-            createdAt: new Date().toISOString(),
-          };
-
-          saveActiveUserSession(userAccount);
-          setCurrentUser(userAccount);
-          setIsAuthModalOpen(false);
-        }
-      })
-      .catch((e) => {
-        console.warn('OAuth redirect check caught error:', e);
-      });
+    const handleHashChange = () => {
+      setCurrentHash(window.location.hash);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Hash / Route detection for public customer gallery: #gallery/SLUG, ?gallery=SLUG, /gallery/SLUG
-  const [publicGallerySlug, setPublicGallerySlug] = useState<string | null>(() => {
-    return parseGallerySlugFromLocation();
-  });
+  // Determine if URL is a Public Gallery route (e.g. #/gallery/GFQ-XXXXXX)
+  const publicGalleryId = useMemo(() => {
+    const match = currentHash.match(/^#\/gallery\/([A-Za-z0-9\-_]+)/);
+    return match ? match[1] : null;
+  }, [currentHash]);
 
+  // Auth Hook
+  const {
+    user,
+    accessToken,
+    isLoading: isAuthLoading,
+    isDriveConnected,
+    signIn,
+    signOut,
+    connectDrive,
+    error: authError,
+  } = useAuth();
+
+  // Studio Data Hook
+  const {
+    profile,
+    albums,
+    trashItems,
+    quota,
+    isLoading: isDataLoading,
+    isProcessing,
+    error: studioError,
+    refreshData,
+    createNewAlbum,
+    updateExistingAlbum,
+    trashAlbum,
+    restoreAlbum,
+    deletePermanent,
+    clearTrash,
+    updateProfile,
+  } = useStudioData(user, accessToken);
+
+  // Admin Navigation State
+  const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [selectedAlbumForDetail, setSelectedAlbumForDetail] = useState<Album | null>(null);
+
+  // Modals State
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
+  const [qrModalAlbum, setQrModalAlbum] = useState<Album | null>(null);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
+
+  // Sync tab with hash if on admin routes
   useEffect(() => {
-    const handleUrlChange = () => {
-      const slug = parseGallerySlugFromLocation();
-      setPublicGallerySlug(slug);
-    };
-
-    window.addEventListener('hashchange', handleUrlChange);
-    window.addEventListener('popstate', handleUrlChange);
-    return () => {
-      window.removeEventListener('hashchange', handleUrlChange);
-      window.removeEventListener('popstate', handleUrlChange);
-    };
-  }, []);
-
-  // Active authenticated user / tenant
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
-    return getActiveUserSession();
-  });
-
-  // Sync Studio OAuth Token to Backend for fast 100% original binary downloads
-  useEffect(() => {
-    if (currentUser?.accessToken && currentUser?.id) {
-      fetch('/api/studio/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ownerId: currentUser.id,
-          token: currentUser.accessToken,
-          expiresAt: currentUser.tokenExpiresAt || Date.now() + 3600 * 1000,
-        }),
-      }).catch(() => {});
-    }
-  }, [currentUser]);
-
-  // Studio profile & branding
-  const [studioProfile, setStudioProfile] = useState<StudioProfile>(() => {
-    const initialUser = getActiveUserSession();
-    return initialUser ? getStudioProfile(initialUser.id) : DEFAULT_STUDIO_PROFILE;
-  });
-
-  // Navigation view
-  const [currentView, setCurrentView] = useState<ViewMode>('dashboard');
-  const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null);
-
-  // Albums & photos state for current tenant
-  const [albums, setAlbums] = useState<Album[]>([]);
-  const [photos, setPhotos] = useState<Photo[]>([]);
-  const [trashAlbums, setTrashAlbums] = useState<Album[]>([]);
-  const [trashPhotos, setTrashPhotos] = useState<Photo[]>([]);
-  const [driveQuota, setDriveQuota] = useState<DriveStorageQuota | null>(null);
-
-  // Modals
-  const [isCreateAlbumOpen, setIsCreateAlbumOpen] = useState(false);
-  const [isUploadFolderOpen, setIsUploadFolderOpen] = useState(false);
-  const [uploadFolderTargetAlbumId, setUploadFolderTargetAlbumId] = useState<string | undefined>(undefined);
-  const [activeQRAlbum, setActiveQRAlbum] = useState<Album | null>(null);
-  const [activeSettingsAlbum, setActiveSettingsAlbum] = useState<Album | null>(null);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-
-  // PWA Install prompt
-  const [deferredPwaPrompt, setDeferredPwaPrompt] = useState<any>(null);
-  const [isInstallable, setIsInstallable] = useState(false);
-
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPwaPrompt(e);
-      setIsInstallable(true);
-    };
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  }, []);
-
-  const handleInstallPwa = async () => {
-    if (!deferredPwaPrompt) return;
-    deferredPwaPrompt.prompt();
-    const choice = await deferredPwaPrompt.userChoice;
-    if (choice.outcome === 'accepted') {
-      setIsInstallable(false);
-    }
-    setDeferredPwaPrompt(null);
-  };
-
-  // Reload current tenant's data whenever currentUser changes
-  const refreshTenantData = () => {
-    if (!currentUser || !currentUser.isConnectedToDrive) {
-      setAlbums([]);
-      setPhotos([]);
-      setTrashAlbums([]);
-      setTrashPhotos([]);
-      setDriveQuota(null);
-      if (currentUser) {
-        setStudioProfile(getStudioProfile(currentUser.id));
-      } else {
-        setStudioProfile(DEFAULT_STUDIO_PROFILE);
+    if (!publicGalleryId) {
+      if (currentHash === '#/albums') setCurrentTab('albums');
+      else if (currentHash === '#/trash') setCurrentTab('trash');
+      else if (currentHash === '#/branding') setCurrentTab('branding');
+      else if (currentHash === '#/settings') setCurrentTab('settings');
+      else if (currentHash === '#/' || currentHash === '#/dashboard' || currentHash === '') {
+        if (currentTab !== 'album-detail') setCurrentTab('dashboard');
       }
-      return;
     }
-    const currentAlbums = getAlbumsForOwner(currentUser.id);
-    const currentPhotos = getAllPhotosForOwner(currentUser.id);
-    const trash = getTrashForOwner(currentUser.id);
-    const profile = getStudioProfile(currentUser.id);
+  }, [currentHash, publicGalleryId]);
 
-    setAlbums(currentAlbums);
-    setPhotos(currentPhotos);
-    setTrashAlbums(trash.albums);
-    setTrashPhotos(trash.photos);
-    setStudioProfile(profile);
-
-    // Sync remote profile in background if available
-    fetchRemoteStudioProfile(currentUser.id).then((remoteProf) => {
-      if (remoteProf) {
-        setStudioProfile(remoteProf);
-      }
-    }).catch(() => {});
-
-    // If active Google Drive token exists, query real quota
-    const token = getStoredUserToken(currentUser.id) || currentUser.accessToken;
-    if (token && currentUser.isConnectedToDrive) {
-      getDriveStorageQuota(token)
-        .then((quota) => setDriveQuota(quota))
-        .catch(() => {
-          // Graceful fallback
-        });
-    }
+  const handleSelectTab = (tab: string) => {
+    setSelectedAlbumForDetail(null);
+    setCurrentTab(tab);
+    window.location.hash = `#/${tab === 'dashboard' ? '' : tab}`;
   };
 
-  useEffect(() => {
-    refreshTenantData();
-  }, [currentUser]);
-
-  // Handle switching studio workspace
-  const handleSwitchStudio = (newStudioUser: UserAccount) => {
-    saveActiveUserSession(newStudioUser);
-    setCurrentUser(newStudioUser);
-    setSelectedAlbum(null);
-    setCurrentView('dashboard');
+  const handleOpenAlbumDetail = (album: Album) => {
+    setSelectedAlbumForDetail(album);
+    setCurrentTab('album-detail');
   };
 
-  // Handle user logout
-  const handleLogout = async () => {
-    await clearUserSession();
-    setCurrentUser(null);
-    setAlbums([]);
-    setPhotos([]);
-    setTrashAlbums([]);
-    setTrashPhotos([]);
-    setStudioProfile(DEFAULT_STUDIO_PROFILE);
-    setDriveQuota(null);
-    setSelectedAlbum(null);
-    setCurrentView('dashboard');
-    setIsAuthModalOpen(true);
-  };
-
-  // Handle Google Drive connect / reconnect
-  const handleConnectDrive = async () => {
-    try {
-      const { accessToken, userInfo } = await requestGoogleDriveAuth();
-      const driveInit = await initAppDriveStructure(accessToken);
-
-      const updatedUser: UserAccount = {
-        id: userInfo.id,
-        email: userInfo.email,
-        name: userInfo.name,
-        avatarUrl: userInfo.picture,
-        accessToken,
-        tokenExpiresAt: Date.now() + 3600 * 1000,
-        isConnectedToDrive: true,
-        driveRootFolderId: driveInit.rootFolderId,
-        driveAlbumFolderId: driveInit.albumsFolderId,
-        role: 'studio_owner',
-        subscriptionTier: 'pro',
-        subscriptionStatus: 'active',
-        createdAt: new Date().toISOString(),
-      };
-
-      saveActiveUserSession(updatedUser);
-      setCurrentUser(updatedUser);
-      setIsAuthModalOpen(false);
-      refreshTenantData();
-    } catch (err: any) {
-      alert(err.message || 'Gagal menghubungkan Google Drive.');
-    }
-  };
-
-  // Handle saving branding profile
-  // Simpan profil pengguna aktif terlebih dahulu agar UI tidak menunggu
-  // sinkronisasi seluruh tenant. Sinkronisasi global dijalankan di background.
-  const handleSaveProfile = async (updatedProfile: StudioProfile) => {
-    if (!currentUser) {
-      throw new Error('Pengguna tidak aktif. Silakan login kembali.');
-    }
-
-    // Penyimpanan profil utama untuk pengguna aktif.
-    await Promise.resolve(saveStudioProfile(currentUser.id, updatedProfile));
-
-    // Perbarui UI segera setelah profil utama berhasil disimpan.
-    setStudioProfile(updatedProfile);
-
-    // Sinkronisasi tambahan tidak boleh menahan tombol "Simpan".
-    void syncAllTenantsToServer().catch((err: any) => {
-      console.warn(
-        '[BACKGROUND_TENANT_SYNC_WARNING] Profil sudah tersimpan, tetapi sinkronisasi tambahan gagal:',
-        err?.message || err
-      );
-    });
-  };
-
-  // Handle creating a new album
-  const handleCreateAlbum = async (
-    albumData: Omit<
-      Album,
-      'id' | 'galleryId' | 'ownerId' | 'photosCount' | 'viewsCount' | 'downloadsCount' | 'isDeleted' | 'createdAt' | 'updatedAt'
-    >
-  ): Promise<Album> => {
-    if (!currentUser) throw new Error('Pengguna tidak aktif.');
-    const newAlb = createAlbum(currentUser.id, albumData);
-    await syncPublicGalleryToServer(newAlb, [], studioProfile);
-    refreshTenantData();
-    return newAlb;
-  };
-
-  // Handle updating an existing album
-  const handleUpdateAlbum = async (albumId: string, updates: Partial<Album>) => {
-    if (!currentUser) throw new Error('Pengguna tidak aktif.');
-    const updated = updateAlbum(currentUser.id, albumId, updates);
-    refreshTenantData();
-    if (selectedAlbum && selectedAlbum.id === albumId) {
-      setSelectedAlbum(updated);
-    }
-    if (activeSettingsAlbum && activeSettingsAlbum.id === albumId) {
-      setActiveSettingsAlbum(updated);
-    }
-  };
-
-  // If viewing a public customer gallery (via QR code scan or link)
-  if (publicGallerySlug) {
+  // 1. PUBLIC GALLERY CLIENT VIEW (No Login Required)
+  if (publicGalleryId) {
     return (
-      <ErrorBoundary
-        fallbackTitle="Memuat Galeri Pelanggan"
-        fallbackMessage="Terjadi kendala saat memuat antarmuka galeri foto. Silakan muat ulang halaman."
-      >
-        <PublicCustomerGallery
-          galleryId={publicGallerySlug}
-          onBackToStudio={() => {
-            if (window.location.hash) {
-              window.location.hash = '';
-            }
-            if (window.location.pathname.startsWith('/gallery')) {
-              window.history.pushState(null, '', '/');
-            }
-            setPublicGallerySlug(null);
-          }}
-        />
-      </ErrorBoundary>
+      <PublicGalleryPage
+        galleryId={publicGalleryId}
+        onNavigateHome={() => {
+          window.location.hash = '#/';
+        }}
+      />
     );
   }
 
+  // 2. STUDIO ADMIN & LOGIN WRAPPED IN LICENSE GUARD
+  const pageTitles: Record<string, { title: string; subtitle: string }> = {
+    dashboard: {
+      title: 'Dashboard Studio',
+      subtitle: 'Ringkasan performa album, penyimpanan Google Drive, dan aksi cepat',
+    },
+    albums: {
+      title: 'Album Pelanggan',
+      subtitle: 'Daftar semua album foto, status PIN, masa berlaku, dan QR Code',
+    },
+    'album-detail': {
+      title: selectedAlbumForDetail?.albumName || 'Detail Album',
+      subtitle: `Gallery ID: ${selectedAlbumForDetail?.galleryId} • Pelanggan: ${selectedAlbumForDetail?.clientName}`,
+    },
+    trash: {
+      title: 'Keranjang Sampah',
+      subtitle: 'Daftar album yang dihapus sementara dan dapat dipulihkan',
+    },
+    branding: {
+      title: 'Profil & Branding Studio',
+      subtitle: 'Pengaturan logo, nama studio, nomor WhatsApp, dan identitas warna',
+    },
+    settings: {
+      title: 'Pengaturan Sistem',
+      subtitle: 'Konfigurasi URL publik GitHub Pages, Drive storage, dan status lisensi',
+    },
+  };
+
+  const activeHeader = pageTitles[currentTab] || pageTitles.dashboard;
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-slate-900 selection:text-white">
-      {/* Top Navigation Bar */}
-      <Navbar
-        user={currentUser}
-        studioProfile={studioProfile}
-        onLogout={handleLogout}
-        onSwitchStudio={handleSwitchStudio}
-        onOpenDriveStatus={() => setCurrentView('drive-status')}
-        onOpenAdminSaaS={() => setCurrentView('admin-saas')}
-        onOpenCreateAlbum={() => setIsCreateAlbumOpen(true)}
-        onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
-        isInstallable={isInstallable}
-        onInstallPwa={handleInstallPwa}
-      />
+    <LicenseGuard
+      user={user}
+      isAuthLoading={isAuthLoading}
+      onSignOut={signOut}
+    >
+      {({ license, refreshLicense, openDeveloperPanel }) => {
+        // Unauthenticated Welcome / Login Screen
+        if (!user) {
+          return (
+            <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-blue-500 selection:text-white">
+              {/* Top Minimal Bar */}
+              <header className="border-b border-slate-900 px-6 sm:px-12 py-5 flex items-center justify-between max-w-7xl mx-auto w-full">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
+                    <Camera className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h1 className="text-base font-extrabold text-white tracking-tight">GaleriFotoQR</h1>
+                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest block">
+                      Cloud Studio
+                    </span>
+                  </div>
+                </div>
 
-      {/* Main Layout Body */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar */}
-        <Sidebar
-          currentView={currentView}
-          onNavigate={(view) => {
-            setCurrentView(view);
-            if (view !== 'album-detail') setSelectedAlbum(null);
-          }}
-          albumsCount={albums.length}
-          trashCount={trashAlbums.length + trashPhotos.length}
-          isDriveConnected={currentUser?.isConnectedToDrive ?? false}
-          studioProfile={studioProfile}
-          user={currentUser}
-          onLogout={handleLogout}
-          isOpenMobile={isMobileSidebarOpen}
-          onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        />
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={openDeveloperPanel}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 rounded-xl text-xs font-semibold transition-all"
+                  >
+                    Dev License Panel
+                  </button>
+                  <span className="text-xs text-slate-400 hidden sm:inline">
+                    Platform Manajemen Galeri & Google Drive Studio
+                  </span>
+                </div>
+              </header>
 
-        {/* Center Content View */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          <div className="max-w-7xl mx-auto">
-            {currentView === 'dashboard' && (
-              <DashboardHome
-                user={currentUser}
-                studioProfile={studioProfile}
-                albums={albums}
-                photos={photos}
-                trashCount={trashAlbums.length + trashPhotos.length}
-                driveQuota={driveQuota}
-                onOpenCreateAlbum={() => {
-                  if (!currentUser || !currentUser.isConnectedToDrive) {
-                    setIsAuthModalOpen(true);
-                  } else {
-                    setIsCreateAlbumOpen(true);
-                  }
-                }}
-                onSelectAlbum={(alb) => {
-                  setSelectedAlbum(alb);
-                  setCurrentView('album-detail');
-                }}
-                onOpenQRCode={(alb) => setActiveQRAlbum(alb)}
-                onOpenSettings={(alb) => setActiveSettingsAlbum(alb)}
-                onNavigate={(v) => setCurrentView(v)}
-                onConnectDrive={handleConnectDrive}
+              {/* Main Hero Card */}
+              <main className="max-w-5xl mx-auto w-full px-6 py-12 flex-1 flex flex-col items-center justify-center text-center space-y-8">
+                <div className="space-y-4 max-w-2xl">
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-full text-xs font-semibold text-blue-400">
+                    <Zap className="w-3.5 h-3.5" />
+                    Satu Akun Google = Satu Studio Foto Digital
+                  </div>
+
+                  <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">
+                    Manajemen Galeri Foto & QR Code Berbasis Google Drive
+                  </h2>
+
+                  <p className="text-sm sm:text-base text-slate-400 leading-relaxed max-w-xl mx-auto">
+                    Simpan foto asli berkualitas tinggi tanpa kompresi file, buat album pelanggan instan, dan bagikan tautan & kartu QR Code tanpa perlu akun bagi pelanggan.
+                  </p>
+                </div>
+
+                {/* Google Sign-in Action */}
+                <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
+                  {authError && (
+                    <div className="p-3 bg-rose-950/60 border border-rose-800 text-rose-300 text-xs rounded-xl flex items-center gap-2 text-left">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{authError}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Masuk ke Studio Foto Anda</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Otentikasi aman menggunakan akun Google & Google Drive
+                    </p>
+                  </div>
+
+                  {/* Official GSI Material Style Google Sign In Button */}
+                  <button
+                    onClick={signIn}
+                    className="w-full flex items-center justify-center gap-3 py-3.5 px-6 bg-white hover:bg-slate-100 text-slate-900 rounded-2xl text-xs font-bold shadow-xl transition-all active:scale-95 group"
+                  >
+                    <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.35 24 12 24z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.35 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                      />
+                    </svg>
+                    <span>Masuk dengan Akun Google Studio</span>
+                    <ArrowRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
+                  </button>
+
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Dengan masuk, aplikasi akan meminta izin untuk membuat folder dan mengunggah foto ke Google Drive studio Anda secara aman.
+                  </p>
+                </div>
+
+                {/* Feature Highlights Bento Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-4xl text-left pt-6">
+                  <div className="p-5 bg-slate-900/60 border border-slate-800 rounded-2xl space-y-2">
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
+                      <HardDrive className="w-4 h-4" />
+                    </div>
+                    <h4 className="text-xs font-bold text-white">Google Drive 100% Asli</h4>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Foto diunggah dalam ukuran dan format biner asli tanpa kompresi apapun.
+                    </p>
+                  </div>
+
+                  <div className="p-5 bg-slate-900/60 border border-slate-800 rounded-2xl space-y-2">
+                    <div className="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center">
+                      <QrCode className="w-4 h-4" />
+                    </div>
+                    <h4 className="text-xs font-bold text-white">QR Code & Kartu Cetak</h4>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Generate kartu cetak ber-branding studio & kode PIN galeri dalam satu klik.
+                    </p>
+                  </div>
+
+                  <div className="p-5 bg-slate-900/60 border border-slate-800 rounded-2xl space-y-2">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                      <Globe className="w-4 h-4" />
+                    </div>
+                    <h4 className="text-xs font-bold text-white">GitHub Pages Ready</h4>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Hash routing teruji 100% bebas 404 pada hosting statis maupun domain sendiri.
+                    </p>
+                  </div>
+                </div>
+              </main>
+
+              {/* Footer */}
+              <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500">
+                GaleriFotoQR Cloud Studio • Solusi Manajemen Galeri Digital Studio Foto
+              </footer>
+            </div>
+          );
+        }
+
+        // Authenticated Studio Admin Dashboard
+        return (
+          <div className="min-h-screen bg-slate-50 flex text-slate-900">
+            {/* Desktop Sidebar */}
+            <div className="hidden lg:block">
+              <Sidebar
+                currentTab={currentTab === 'album-detail' ? 'albums' : currentTab}
+                onSelectTab={handleSelectTab}
+                profile={profile}
+                quota={quota}
+                isDriveConnected={isDriveConnected}
+                onConnectDrive={connectDrive}
+                onSignOut={signOut}
               />
-            )}
+            </div>
 
-            {currentView === 'albums' && (
-              <AlbumList
-                albums={albums}
-                studioProfile={studioProfile}
-                isDriveConnected={currentUser?.isConnectedToDrive ?? false}
-                onConnectDrive={handleConnectDrive}
-                onOpenCreateAlbum={() => {
-                  if (!currentUser || !currentUser.isConnectedToDrive) {
-                    setIsAuthModalOpen(true);
-                  } else {
-                    setIsCreateAlbumOpen(true);
-                  }
-                }}
-                onOpenUploadFolder={() => {
-                  if (!currentUser || !currentUser.isConnectedToDrive) {
-                    setIsAuthModalOpen(true);
-                  } else {
-                    setUploadFolderTargetAlbumId(undefined);
-                    setIsUploadFolderOpen(true);
-                  }
-                }}
-                onOpenUploadPhotos={() => {
-                  if (!currentUser || !currentUser.isConnectedToDrive) {
-                    setIsAuthModalOpen(true);
-                  } else {
-                    setUploadFolderTargetAlbumId(undefined);
-                    setIsUploadFolderOpen(true);
-                  }
-                }}
-                onSelectAlbum={(alb) => {
-                  setSelectedAlbum(alb);
-                  setCurrentView('album-detail');
-                }}
-                onOpenQRCode={(alb) => setActiveQRAlbum(alb)}
-                onOpenSettings={(alb) => setActiveSettingsAlbum(alb)}
-                onMoveToTrash={(albumId) => {
-                  if (currentUser) {
-                    moveAlbumToTrash(currentUser.id, albumId);
-                    refreshTenantData();
-                  }
-                }}
+            {/* Mobile Drawer */}
+            <MobileNav
+              isOpen={isMobileNavOpen}
+              onClose={() => setIsMobileNavOpen(false)}
+              currentTab={currentTab === 'album-detail' ? 'albums' : currentTab}
+              onSelectTab={handleSelectTab}
+              profile={profile}
+              onSignOut={signOut}
+            />
+
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
+              <Navbar
+                title={activeHeader.title}
+                subtitle={activeHeader.subtitle}
+                profile={profile}
+                isDriveConnected={isDriveConnected}
+                onOpenCreateAlbum={() => setIsCreateModalOpen(true)}
+                onRefresh={refreshData}
+                onToggleMobileMenu={() => setIsMobileNavOpen(true)}
+                isRefreshing={isDataLoading}
               />
-            )}
 
-            {currentView === 'album-detail' && selectedAlbum && (
-              <AlbumDetail
-                album={selectedAlbum}
-                photos={photos.filter((p) => p.albumId === selectedAlbum.id)}
-                studioProfile={studioProfile}
-                user={currentUser}
-                onBack={() => {
-                  setSelectedAlbum(null);
-                  setCurrentView('albums');
-                }}
-                onOpenQRCode={(alb) => setActiveQRAlbum(alb)}
-                onOpenSettings={(alb) => setActiveSettingsAlbum(alb)}
-                onOpenUploadFolder={(alb) => {
-                  if (!currentUser || !currentUser.isConnectedToDrive) {
-                    setIsAuthModalOpen(true);
-                  } else {
-                    setUploadFolderTargetAlbumId(alb.id);
-                    setIsUploadFolderOpen(true);
-                  }
-                }}
-                onAddPhotos={(newPhotos) => {
-                  if (currentUser) {
-                    addPhotosToAlbum(currentUser.id, selectedAlbum.id, newPhotos);
-                    refreshTenantData();
-                  }
-                }}
-                onDeletePhoto={(photoId) => {
-                  if (currentUser) {
-                    movePhotoToTrash(currentUser.id, photoId);
-                    refreshTenantData();
-                  }
-                }}
-                onMoveAlbumToTrash={(albumId) => {
-                  if (currentUser) {
-                    moveAlbumToTrash(currentUser.id, albumId);
-                    refreshTenantData();
-                  }
-                }}
-                onUpdateAlbum={handleUpdateAlbum}
-                onRefreshTenantData={refreshTenantData}
-              />
-            )}
+              <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto flex-1">
+                {/* Main View Router */}
+                {currentTab === 'dashboard' && (
+                  <DashboardPage
+                    albums={albums}
+                    profile={profile}
+                    quota={quota}
+                    isDriveConnected={isDriveConnected}
+                    onOpenCreateAlbum={() => setIsCreateModalOpen(true)}
+                    onOpenQR={(album) => setQrModalAlbum(album)}
+                    onOpenAlbumDetail={handleOpenAlbumDetail}
+                    onSelectTab={handleSelectTab}
+                    onConnectDrive={connectDrive}
+                  />
+                )}
 
-            {currentView === 'drive-status' && (
-              <DriveStatusView
-                user={currentUser}
-                studioProfile={studioProfile}
-                driveQuota={driveQuota}
-                onConnectDrive={handleConnectDrive}
-                onDisconnectDrive={() => {
-                  if (currentUser) {
-                    const disconnected = { ...currentUser, isConnectedToDrive: false };
-                    saveActiveUserSession(disconnected);
-                    setCurrentUser(disconnected);
-                  }
-                }}
-                onRefreshQuota={async () => {
-                  const token = currentUser ? getStoredUserToken(currentUser.id) || currentUser.accessToken : null;
-                  if (token) {
-                    const q = await getDriveStorageQuota(token);
-                    setDriveQuota(q);
-                  }
-                }}
-              />
-            )}
+                {currentTab === 'albums' && (
+                  <AlbumsPage
+                    albums={albums}
+                    profile={profile}
+                    onOpenCreateAlbum={() => setIsCreateModalOpen(true)}
+                    onOpenQR={(album) => setQrModalAlbum(album)}
+                    onOpenAlbumDetail={handleOpenAlbumDetail}
+                    onTrashAlbum={trashAlbum}
+                    onUpdateAlbum={updateExistingAlbum}
+                  />
+                )}
 
-            {currentView === 'branding' && (
-              <BrandingSettings
-                studioProfile={studioProfile}
-                currentUser={currentUser}
-                onSaveProfile={handleSaveProfile}
-              />
-            )}
+                {currentTab === 'album-detail' && selectedAlbumForDetail && (
+                  <AlbumDetailPage
+                    album={selectedAlbumForDetail}
+                    accessToken={accessToken || ''}
+                    studioProfile={profile}
+                    onBack={() => handleSelectTab('albums')}
+                    onOpenQR={(album) => setQrModalAlbum(album)}
+                    onUpdateAlbum={async (updated) => {
+                      await updateExistingAlbum(updated);
+                      setSelectedAlbumForDetail(updated);
+                    }}
+                    onTrashAlbum={(id) => {
+                      trashAlbum(id);
+                      handleSelectTab('albums');
+                    }}
+                  />
+                )}
 
-            {currentView === 'settings' && (
-              <BrandingSettings
-                studioProfile={studioProfile}
-                currentUser={currentUser}
-                onSaveProfile={handleSaveProfile}
-              />
-            )}
+                {currentTab === 'trash' && (
+                  <TrashPage
+                    trashItems={trashItems}
+                    onRestore={restoreAlbum}
+                    onDeletePermanent={deletePermanent}
+                    onClearTrash={clearTrash}
+                    isProcessing={isProcessing}
+                  />
+                )}
 
-            {currentView === 'trash' && (
-              <TrashBinView
-                trashAlbums={trashAlbums}
-                trashPhotos={trashPhotos}
-                studioProfile={studioProfile}
-                onRestoreAlbum={async (albumId) => {
-                  if (currentUser) {
-                    await restoreAlbumFromTrash(currentUser.id, albumId);
-                    refreshTenantData();
-                  }
-                }}
-                onPermanentlyDeleteAlbum={async (albumId) => {
-                  if (currentUser) {
-                    const token = currentUser.accessToken || getStoredUserToken(currentUser.id) || undefined;
-                    await permanentlyDeleteAlbum(currentUser.id, albumId, token);
-                    refreshTenantData();
-                  }
-                }}
-                onRestorePhoto={async (photoId) => {
-                  if (currentUser) {
-                    await restorePhotoFromTrash(currentUser.id, photoId);
-                    refreshTenantData();
-                  }
-                }}
-                onPermanentlyDeletePhoto={async (photoId) => {
-                  if (currentUser) {
-                    const token = currentUser.accessToken || getStoredUserToken(currentUser.id) || undefined;
-                    await permanentlyDeletePhoto(currentUser.id, photoId, token);
-                    refreshTenantData();
-                  }
-                }}
-                onEmptyTrash={async () => {
-                  if (currentUser) {
-                    const token = currentUser.accessToken || getStoredUserToken(currentUser.id) || undefined;
-                    await emptyTrash(currentUser.id, token);
-                    refreshTenantData();
-                  }
-                }}
-              />
-            )}
+                {currentTab === 'branding' && (
+                  <BrandingPage
+                    profile={profile}
+                    onSaveProfile={updateProfile}
+                    isProcessing={isProcessing}
+                  />
+                )}
 
-            {currentView === 'admin-saas' && (
-              <AdminSaaSDashboard
-                currentUser={currentUser}
-                onSwitchStudio={handleSwitchStudio}
-              />
-            )}
+                {currentTab === 'settings' && (
+                  <SettingsPage
+                    profile={profile}
+                    quota={quota}
+                    isDriveConnected={isDriveConnected}
+                    albums={albums}
+                    license={license}
+                    onConnectDrive={connectDrive}
+                    onRefreshData={refreshData}
+                    onRefreshLicense={refreshLicense}
+                    onOpenDeveloperPanel={openDeveloperPanel}
+                  />
+                )}
+              </main>
+            </div>
 
-            {currentView === 'help' && (
-              <HelpAndGuide studioProfile={studioProfile} />
-            )}
+            {/* Create Album Modal */}
+            <CreateAlbumModal
+              isOpen={isCreateModalOpen}
+              onClose={() => setIsCreateModalOpen(false)}
+              onSubmit={async (params) => {
+                const newAlbum = await createNewAlbum(params);
+                setSelectedAlbumForDetail(newAlbum);
+                setCurrentTab('album-detail');
+              }}
+              isProcessing={isProcessing}
+            />
+
+            {/* QR Code & Printable Card Modal */}
+            <QRCodeModal
+              isOpen={Boolean(qrModalAlbum)}
+              onClose={() => setQrModalAlbum(null)}
+              album={qrModalAlbum}
+              studioProfile={profile}
+            />
           </div>
-        </main>
-      </div>
-
-      {/* Modals */}
-      <CreateAlbumModal
-        isOpen={isCreateAlbumOpen}
-        onClose={() => setIsCreateAlbumOpen(false)}
-        user={currentUser}
-        studioProfile={studioProfile}
-        onCreateAlbum={handleCreateAlbum}
-        onSuccess={(newAlb) => {
-          setIsCreateAlbumOpen(false);
-          setSelectedAlbum(newAlb);
-          setCurrentView('album-detail');
-          setActiveQRAlbum(newAlb);
-        }}
-      />
-
-      <QRCodeModal
-        isOpen={activeQRAlbum !== null}
-        onClose={() => setActiveQRAlbum(null)}
-        album={activeQRAlbum}
-        studioProfile={studioProfile}
-      />
-
-      <UploadFolderModal
-        isOpen={isUploadFolderOpen}
-        onClose={() => {
-          setIsUploadFolderOpen(false);
-          setUploadFolderTargetAlbumId(undefined);
-        }}
-        user={currentUser}
-        studioProfile={studioProfile}
-        albums={albums}
-        photos={photos}
-        preselectedAlbumId={uploadFolderTargetAlbumId}
-        onConnectDrive={handleConnectDrive}
-        onCreateAlbum={async (albumData) => {
-          if (!currentUser) throw new Error('Sesi pengguna tidak valid');
-          const newAlb = createAlbum(currentUser.id, albumData);
-          refreshTenantData();
-          return newAlb;
-        }}
-        onAddPhotosToAlbum={(albumId, newPhotos) => {
-          if (currentUser) {
-            addPhotosToAlbum(currentUser.id, albumId, newPhotos);
-            refreshTenantData();
-          }
-        }}
-        onNavigateToAlbum={(alb) => {
-          setSelectedAlbum(alb);
-          setCurrentView('album-detail');
-        }}
-      />
-
-      <AlbumSettingsModal
-        isOpen={activeSettingsAlbum !== null}
-        onClose={() => setActiveSettingsAlbum(null)}
-        album={activeSettingsAlbum}
-        studioProfile={studioProfile}
-        onUpdateAlbum={handleUpdateAlbum}
-        onMoveToTrash={(albumId) => {
-          if (currentUser) {
-            moveAlbumToTrash(currentUser.id, albumId);
-            refreshTenantData();
-            if (selectedAlbum && selectedAlbum.id === albumId) {
-              setSelectedAlbum(null);
-              setCurrentView('albums');
-            }
-          }
-        }}
-      />
-
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onLoginSuccess={(user) => {
-          setCurrentUser(user);
-          setIsAuthModalOpen(false);
-        }}
-      />
-    </div>
+        );
+      }}
+    </LicenseGuard>
   );
 }

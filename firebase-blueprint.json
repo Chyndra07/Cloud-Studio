@@ -1,0 +1,90 @@
+{
+  "entities": {
+    "StudioProfile": {
+      "title": "StudioProfile",
+      "description": "Studio configuration and photographer profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "studioName": { "type": "string" },
+        "ownerEmail": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "studioName", "ownerEmail"]
+    },
+    "Album": {
+      "title": "Album",
+      "description": "Customer photo album metadata",
+      "type": "object",
+      "properties": {
+        "albumId": { "type": "string" },
+        "galleryId": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "studioId": { "type": "string" },
+        "albumName": { "type": "string" },
+        "clientName": { "type": "string" },
+        "driveFolderId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["albumId", "galleryId", "ownerUid", "albumName", "clientName", "driveFolderId"]
+    },
+    "TrashItem": {
+      "title": "TrashItem",
+      "description": "Deleted albums in studio trash bin",
+      "type": "object",
+      "properties": {
+        "albumId": { "type": "string" },
+        "galleryId": { "type": "string" },
+        "deletedAt": { "type": "string" }
+      },
+      "required": ["albumId", "galleryId", "deletedAt"]
+    },
+    "PublicGallery": {
+      "title": "PublicGallery",
+      "description": "Public facing client gallery view accessible via QR Code",
+      "type": "object",
+      "properties": {
+        "galleryId": { "type": "string" },
+        "albumName": { "type": "string" },
+        "clientName": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["galleryId", "albumName", "clientName"]
+    },
+    "ClientSelection": {
+      "title": "ClientSelection",
+      "description": "Client selected favorite photos",
+      "type": "object",
+      "properties": {
+        "galleryId": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["galleryId"]
+    }
+  },
+  "firestore": {
+    "/studios/{studioId}": {
+      "schema": "StudioProfile",
+      "description": "Studio profile and settings"
+    },
+    "/studios/{studioId}/albums/{albumId}": {
+      "schema": "Album",
+      "description": "Studio customer albums"
+    },
+    "/studios/{studioId}/trash/{albumId}": {
+      "schema": "TrashItem",
+      "description": "Studio trash bin"
+    },
+    "/public_galleries/{galleryId}": {
+      "schema": "PublicGallery",
+      "description": "Public gallery metadata"
+    },
+    "/public_galleries/{galleryId}/selections/{selectionId}": {
+      "schema": "ClientSelection",
+      "description": "Client selections"
+    }
+  }
+}

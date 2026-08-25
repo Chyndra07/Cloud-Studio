@@ -1,8 +1,104 @@
 import { Album, Photo, StudioProfile, UserAccount, StudioTenantRecord } from '../types';
 import { deleteDriveFile } from './googleDrive';
 import { getStoredUserToken } from './googleAuth';
+import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
+import { getAuth, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
+import {
+  deleteDoc, doc, getDoc, getFirestore, setDoc
+} from 'firebase/firestore';
+import {
+  deleteObject, getDownloadURL, getStorage, ref, uploadBytes
+} from 'firebase/storage';
 
 const STORAGE_PREFIX = 'galerifotoqr_db_';
+
+const FIREBASE_CONFIG_URL = `${import.meta.env.BASE_URL || '/'}firebase-applet-config.json`;
+let firebaseAppPromise: Promise<FirebaseApp> | null = null;
+
+async function getFirebaseApp(): Promise<FirebaseApp> {
+  if (getApps().length) return getApps()[0];
+  if (!firebaseAppPromise) {
+    firebaseAppPromise = (async () => {
+      const res = await fetch(FIREBASE_CONFIG_URL, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`Konfigurasi Firebase tidak ditemukan (HTTP ${res.status}).`);
+      const raw = await res.json();
+      const config = raw.firebaseConfig || raw;
+      if (!config.apiKey || !config.projectId || !config.appId) {
+        throw new Error('firebase-applet-config.json tidak berisi konfigurasi Firebase yang lengkap.');
+      }
+      return initializeApp(config);
+    })();
+  }
+  return firebaseAppPromise;
+}
+
+async function ensureFirebaseAuth(ownerId?: string) {
+  const app = await getFirebaseApp();
+  const auth = getAuth(app);
+  if (auth.currentUser) return auth.currentUser;
+
+  if (ownerId) {
+    const accessToken = getStoredUserToken(ownerId);
+    if (accessToken) {
+      const credential = GoogleAuthProvider.credential(null, accessToken);
+      const result = await signInWithCredential(auth, credential);
+      return result.user;
+    }
+  }
+  return null;
+}
+
+async function firestoreDb() {
+  return getFirestore(await getFirebaseApp());
+}
+
+function publicGalleryDocId(galleryId: string) {
+  return galleryId.trim().toUpperCase();
+}
+
+async function writePublicGalleryToFirestore(
+  album: Album,
+  photos: Photo[],
+  studio: StudioProfile
+): Promise<void> {
+  await ensureFirebaseAuth(album.ownerId);
+  const db = await firestoreDb();
+  const galleryId = publicGalleryDocId(album.galleryId || album.id);
+  const payload = {
+    status: album.isDeleted ? 'disabled' : 'ok',
+    album: { ...album, galleryId },
+    photos: photos.filter((p) => !p.isDeleted),
+    studio,
+    updatedAt: new Date().toISOString(),
+  };
+  await setDoc(doc(db, 'public_galleries', galleryId), payload, { merge: true });
+}
+
+async function readPublicGalleryFromFirestore(galleryId: string): Promise<any | null> {
+  const db = await firestoreDb();
+  const snap = await getDoc(doc(db, 'public_galleries', publicGalleryDocId(galleryId)));
+  return snap.exists() ? snap.data() : null;
+}
+
+async function deletePublicGalleryFromFirestore(galleryId: string, ownerId?: string): Promise<void> {
+  await ensureFirebaseAuth(ownerId);
+  const db = await firestoreDb();
+  await deleteDoc(doc(db, 'public_galleries', publicGalleryDocId(galleryId)));
+}
+
+async function writeStudioProfileToFirestore(ownerId: string, profile: StudioProfile): Promise<void> {
+  await ensureFirebaseAuth(ownerId);
+  const db = await firestoreDb();
+  await setDoc(doc(db, 'studio_profiles', ownerId), { ...profile, ownerId }, { merge: true });
+}
+
+async function readStudioProfileFromFirestore(ownerId: string): Promise<StudioProfile | null> {
+  await ensureFirebaseAuth(ownerId);
+  const db = await firestoreDb();
+  const snap = await getDoc(doc(db, 'studio_profiles', ownerId));
+  return snap.exists() ? (snap.data() as StudioProfile) : null;
+}
+
 
 export const DEFAULT_STUDIO_PROFILE: StudioProfile = {
   studioName: '',
@@ -45,8 +141,7 @@ export function initializeStorage() {
     console.error('Storage cleanup failed:', err);
   }
 
-  // Fast background sync of active tenant albums to server
-  syncAllTenantsToServer().catch(() => {});
+  // Firestore sync is performed when records are created/updated.
 }
 
 // ---------------- ALBUM OPERATIONS (STRICT OWNER ISOLATION) ----------------
@@ -243,15 +338,13 @@ export async function permanentlyDeleteAlbum(
 
     updatePublicGalleryRegistry();
 
-    // 3. Purge from backend server database
+    // 3. Purge the public record from Firestore
     const gId = targetAlbum?.galleryId || albumId;
     if (gId) {
       try {
-        await fetch(`/api/public/gallery/${encodeURIComponent(gId)}?ownerId=${encodeURIComponent(ownerId)}`, {
-          method: 'DELETE',
-        });
-      } catch (srvErr) {
-        console.warn('[permanentlyDeleteAlbum] Server deletion warning:', srvErr);
+        await deletePublicGalleryFromFirestore(gId, ownerId);
+      } catch (err) {
+        console.warn('[permanentlyDeleteAlbum] Firestore deletion warning:', err);
       }
     }
 
@@ -753,19 +846,13 @@ export async function emptyTrash(
 
     updatePublicGalleryRegistry();
 
-    // 3. Purge from backend server database
-    try {
-      await fetch('/api/public/trash/empty', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ownerId,
-          galleryIds: trashedAlbums.map((a) => a.galleryId),
-          albumIds: trashedAlbums.map((a) => a.id),
-        }),
-      });
-    } catch (srvErr) {
-      console.warn('[emptyTrash] Server database cleanup notice:', srvErr);
+    // 3. Purge public records from Firestore
+    for (const alb of trashedAlbums) {
+      try {
+        await deletePublicGalleryFromFirestore(alb.galleryId || alb.id, ownerId);
+      } catch (err) {
+        console.warn('[emptyTrash] Firestore cleanup notice:', err);
+      }
     }
 
     return {
@@ -802,13 +889,9 @@ export function saveStudioProfile(userId: string, profile: StudioProfile) {
   localStorage.setItem(`${STORAGE_PREFIX}profile_${userId}`, JSON.stringify(updatedProfile));
   updatePublicGalleryRegistry();
 
-  // Asynchronously synchronize profile to backend server
-  fetch('/api/studio/profile', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ownerId: userId, profile: updatedProfile }),
-  }).catch((err) => {
-    console.warn('[StudioProfile] Server background sync warning:', err);
+  // Asynchronously synchronize profile to Firestore
+  writeStudioProfileToFirestore(userId, updatedProfile).catch((err) => {
+    console.warn('[StudioProfile] Firestore background sync warning:', err);
   });
 }
 
@@ -818,101 +901,66 @@ export function saveStudioProfile(userId: string, profile: StudioProfile) {
 export async function fetchRemoteStudioProfile(userId: string): Promise<StudioProfile | null> {
   if (!userId) return null;
   try {
-    const res = await fetch(`/api/studio/profile/${encodeURIComponent(userId)}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.success && data.profile) {
-      const merged: StudioProfile = {
-        ...DEFAULT_STUDIO_PROFILE,
-        ...data.profile,
-        studioLogoUrl: data.profile.studioLogoUrl || data.profile.logoUrl,
-        logoUrl: data.profile.logoUrl || data.profile.studioLogoUrl,
-      };
-      localStorage.setItem(`${STORAGE_PREFIX}profile_${userId}`, JSON.stringify(merged));
-      return merged;
-    }
+    const remote = await readStudioProfileFromFirestore(userId);
+    if (!remote) return null;
+    const merged: StudioProfile = {
+      ...DEFAULT_STUDIO_PROFILE,
+      ...remote,
+      studioLogoUrl: remote.studioLogoUrl || remote.logoUrl,
+      logoUrl: remote.logoUrl || remote.studioLogoUrl,
+    };
+    localStorage.setItem(`${STORAGE_PREFIX}profile_${userId}`, JSON.stringify(merged));
+    return merged;
   } catch (err) {
-    console.warn('[StudioProfile] Remote fetch warning:', err);
+    console.warn('[StudioProfile] Firestore fetch warning:', err);
+    return null;
   }
-  return null;
 }
 
 /**
  * Uploads studio logo image to persistent storage (max 2MB, formats: PNG, JPG, WebP, SVG)
  */
 export async function uploadStudioLogo(
-  ownerId: string, 
+  ownerId: string,
   file: File
 ): Promise<{ success: boolean; logoUrl?: string; error?: string }> {
-  if (!ownerId) {
-    return { success: false, error: 'User ID tidak valid.' };
-  }
-  if (!file) {
-    return { success: false, error: 'File logo tidak ditemukan.' };
-  }
+  if (!ownerId) return { success: false, error: 'User ID tidak valid.' };
+  if (!file) return { success: false, error: 'File logo tidak ditemukan.' };
 
-  // 1. Validation: Max 2MB
-  const MAX_SIZE = 2 * 1024 * 1024; // 2MB
+  const MAX_SIZE = 2 * 1024 * 1024;
   if (file.size > MAX_SIZE) {
-    return { 
-      success: false, 
-      error: `Ukuran file logo terlalu besar (${(file.size / (1024 * 1024)).toFixed(2)} MB). Maksimal ukuran file adalah 2 MB.` 
-    };
+    return { success: false, error: `Ukuran file logo terlalu besar (${(file.size / (1024 * 1024)).toFixed(2)} MB). Maksimal 2 MB.` };
   }
 
-  // 2. Validation: Mime types
   const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml'];
   if (!allowedTypes.includes(file.type.toLowerCase())) {
-    return { 
-      success: false, 
-      error: 'Format file tidak didukung. Harap pilih gambar dengan format PNG, JPG/JPEG, WebP, atau SVG.' 
-    };
+    return { success: false, error: 'Format file tidak didukung. Gunakan PNG, JPG/JPEG, WebP, atau SVG.' };
   }
 
-  // 3. Convert to base64
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const base64Data = reader.result as string;
-        const res = await fetch('/api/studio/logo', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ownerId,
-            logoBase64: base64Data,
-            fileName: file.name,
-            mimeType: file.type,
-          }),
-        });
+  try {
+    await ensureFirebaseAuth(ownerId);
+    const app = await getFirebaseApp();
+    const storage = getStorage(app);
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const logoRef = ref(storage, `studio-logos/${ownerId}/${Date.now()}-${safeName}`);
+    await uploadBytes(logoRef, file, { contentType: file.type });
+    const logoUrl = await getDownloadURL(logoRef);
 
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          resolve({ success: false, error: data.error || 'Gagal mengunggah logo ke server.' });
-          return;
-        }
-
-        // Update local studio profile with new logo
-        const currentProfile = getStudioProfile(ownerId);
-        const updatedProfile: StudioProfile = {
-          ...currentProfile,
-          studioLogoUrl: data.logoUrl,
-          logoUrl: data.logoUrl,
-          updatedAt: new Date().toISOString(),
-        };
-        localStorage.setItem(`${STORAGE_PREFIX}profile_${ownerId}`, JSON.stringify(updatedProfile));
-        updatePublicGalleryRegistry();
-
-        resolve({ success: true, logoUrl: data.logoUrl });
-      } catch (err: any) {
-        resolve({ success: false, error: err.message || 'Terjadi kesalahan jaringan saat mengunggah logo.' });
-      }
+    const currentProfile = getStudioProfile(ownerId);
+    const updatedProfile: StudioProfile = {
+      ...currentProfile,
+      studioLogoUrl: logoUrl,
+      logoUrl,
+      studioLogoPath: logoRef.fullPath,
+      updatedAt: new Date().toISOString(),
     };
-    reader.onerror = () => {
-      resolve({ success: false, error: 'Gagal membaca file gambar.' });
-    };
-    reader.readAsDataURL(file);
-  });
+    localStorage.setItem(`${STORAGE_PREFIX}profile_${ownerId}`, JSON.stringify(updatedProfile));
+    await writeStudioProfileToFirestore(ownerId, updatedProfile);
+    updatePublicGalleryRegistry();
+    return { success: true, logoUrl };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Gagal mengunggah logo ke Firebase Storage.' };
+  }
 }
 
 /**
@@ -921,15 +969,17 @@ export async function uploadStudioLogo(
 export async function deleteStudioLogo(ownerId: string): Promise<{ success: boolean; error?: string }> {
   if (!ownerId) return { success: false, error: 'User ID tidak valid.' };
   try {
-    const res = await fetch(`/api/studio/logo/${encodeURIComponent(ownerId)}`, {
-      method: 'DELETE',
-    });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      return { success: false, error: data.error || 'Gagal menghapus logo di server.' };
+    await ensureFirebaseAuth(ownerId);
+    const currentProfile = getStudioProfile(ownerId);
+    if (currentProfile.studioLogoPath) {
+      try {
+        const storage = getStorage(await getFirebaseApp());
+        await deleteObject(ref(storage, currentProfile.studioLogoPath));
+      } catch (err) {
+        console.warn('[StudioLogo] Firebase Storage delete warning:', err);
+      }
     }
 
-    const currentProfile = getStudioProfile(ownerId);
     const updatedProfile: StudioProfile = {
       ...currentProfile,
       studioLogoUrl: undefined,
@@ -942,8 +992,8 @@ export async function deleteStudioLogo(ownerId: string): Promise<{ success: bool
     delete updatedProfile.studioLogoPath;
 
     localStorage.setItem(`${STORAGE_PREFIX}profile_${ownerId}`, JSON.stringify(updatedProfile));
+    await writeStudioProfileToFirestore(ownerId, updatedProfile);
     updatePublicGalleryRegistry();
-
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || 'Gagal menghapus logo.' };
@@ -973,17 +1023,16 @@ export interface PublishVerificationResult {
  * and performs read-back verification against the server API.
  */
 export async function syncPublicGalleryToServer(
-  album: Album, 
-  photos: Photo[], 
+  album: Album,
+  photos: Photo[],
   studio: StudioProfile
 ): Promise<PublishVerificationResult> {
   if (!album || !(album.galleryId || album.id)) {
     return { success: false, verified: false, galleryId: '', error: 'Data album tidak valid.' };
   }
 
-  const cleanGalleryId = (album.galleryId || album.id).trim().toUpperCase();
+  const cleanGalleryId = publicGalleryDocId(album.galleryId || album.id);
 
-  // 1. Update local registry immediately
   try {
     const registryRaw = localStorage.getItem(`${STORAGE_PREFIX}public_registry`);
     const registry = registryRaw ? JSON.parse(registryRaw) : {};
@@ -994,89 +1043,36 @@ export async function syncPublicGalleryToServer(
       studio,
     };
     localStorage.setItem(`${STORAGE_PREFIX}public_registry`, JSON.stringify(registry));
-  } catch (err) {
-    console.warn('[Storage] Local registry cache update warning:', err);
-  }
 
-  // 2. Persist to server backend database (Single Source of Truth)
-  try {
-    const payload = {
-      album: {
-        id: album.id,
-        galleryId: cleanGalleryId,
-        ownerId: album.ownerId,
-        ownerUid: album.ownerId,
-        eventName: album.eventName,
-        albumName: album.eventName,
-        customerName: album.customerName,
-        clientName: album.customerName,
-        eventDate: album.eventDate || new Date().toISOString().split('T')[0],
-        description: album.description || '',
-        coverPhotoUrl: album.coverPhotoUrl,
-        pinEnabled: !!album.isPasswordProtected,
-        isPasswordProtected: !!album.isPasswordProtected,
-        pinHash: album.passwordHash,
-        passwordHash: album.passwordHash,
-        displayQuality: album.displayQuality || 'hd',
-        expiresAt: album.expiresAt,
-        isPublished: true,
-        status: album.isDeleted ? 'disabled' : 'published',
-        isDeleted: !!album.isDeleted,
-        viewsCount: album.viewsCount || 0,
-        downloadsCount: album.downloadsCount || 0,
-        driveFolderId: album.driveFolderId,
-        driveFolderUrl: album.driveFolderUrl,
-        createdAt: album.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        publishedAt: album.publishedAt || new Date().toISOString(),
-      },
-      photos: photos.filter((p) => !p.isDeleted),
-      studio,
-    };
+    await writePublicGalleryToFirestore(
+      { ...album, galleryId: cleanGalleryId },
+      photos,
+      studio
+    );
 
-    const res = await fetch('/api/public/gallery', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      return { 
-        success: false, 
-        verified: false, 
-        galleryId: cleanGalleryId, 
-        error: errJson.error || `HTTP ${res.status}: Gagal menyimpan ke server database.` 
-      };
-    }
-
-    // 3. READ-BACK VERIFICATION directly from the server GET endpoint
-    const verifyRes = await fetch(`/api/public/gallery/${encodeURIComponent(cleanGalleryId)}`);
-    if (verifyRes.ok) {
-      const verifyData = await verifyRes.json();
-      console.log(`[PUBLICATION VERIFIED] Server confirmed public gallery record for: ${cleanGalleryId}`, verifyData);
-      return {
-        success: true,
-        verified: true,
-        galleryId: cleanGalleryId,
-        record: verifyData,
-      };
-    } else {
-      console.warn(`[PUBLICATION READ-BACK FAILED] Write succeeded but read-back failed with HTTP ${verifyRes.status}`);
+    const verifyData = await readPublicGalleryFromFirestore(cleanGalleryId);
+    if (!verifyData) {
       return {
         success: true,
         verified: false,
         galleryId: cleanGalleryId,
-        error: 'Record tersimpan namun belum dapat diverifikasi kembali dari server.',
+        error: 'Record tersimpan tetapi belum dapat dibaca kembali dari Firestore.',
       };
     }
+
+    return {
+      success: true,
+      verified: true,
+      galleryId: cleanGalleryId,
+      record: verifyData,
+    };
   } catch (err: any) {
-    console.error('[Sync] Could not sync gallery to server endpoint:', err);
+    console.error('[Firestore Sync] Gallery sync failed:', err);
     return {
       success: false,
       verified: false,
       galleryId: cleanGalleryId,
-      error: err.message || 'Koneksi ke backend server gagal.',
+      error: err.message || 'Gagal menyimpan galeri ke Firestore.',
     };
   }
 }
@@ -1137,36 +1133,21 @@ export async function republishAlbum(
 export async function syncAllTenantsToServer(): Promise<void> {
   try {
     const keys = Object.keys(localStorage);
-    const bundles: PublicGalleryBundle[] = [];
-
     for (const key of keys) {
-      if (key.startsWith(`${STORAGE_PREFIX}albums_`)) {
-        const ownerId = key.replace(`${STORAGE_PREFIX}albums_`, '');
-        const albums: Album[] = JSON.parse(localStorage.getItem(key) || '[]');
-        const profile = getStudioProfile(ownerId);
-        const photosRaw = localStorage.getItem(`${STORAGE_PREFIX}photos_${ownerId}`);
-        const photos: Photo[] = photosRaw ? JSON.parse(photosRaw) : [];
+      if (!key.startsWith(`${STORAGE_PREFIX}albums_`)) continue;
+      const ownerId = key.replace(`${STORAGE_PREFIX}albums_`, '');
+      const albums: Album[] = JSON.parse(localStorage.getItem(key) || '[]');
+      const profile = getStudioProfile(ownerId);
+      const photosRaw = localStorage.getItem(`${STORAGE_PREFIX}photos_${ownerId}`);
+      const photos: Photo[] = photosRaw ? JSON.parse(photosRaw) : [];
 
-        for (const alb of albums) {
-          const albPhotos = photos.filter((p) => p.albumId === alb.id && !p.isDeleted);
-          bundles.push({
-            album: alb,
-            photos: albPhotos,
-            studio: profile,
-          });
-        }
+      for (const alb of albums) {
+        const albPhotos = photos.filter((p) => p.albumId === alb.id && !p.isDeleted);
+        await writePublicGalleryToFirestore(alb, albPhotos, profile);
       }
     }
-
-    if (bundles.length > 0) {
-      await fetch('/api/public/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bundles }),
-      });
-    }
   } catch (err) {
-    console.warn('[Sync] Background sync to server failed:', err);
+    console.warn('[Sync] Background sync to Firestore failed:', err);
   }
 }
 
@@ -1193,8 +1174,6 @@ export function updatePublicGalleryRegistry() {
               studio: profile,
             };
             registry[alb.galleryId] = bundleItem;
-            // Also sync to server in background
-            syncPublicGalleryToServer(alb, albPhotos, profile).catch(() => {});
           }
         }
       }
@@ -1218,30 +1197,18 @@ export async function verifyServerRecord(galleryId: string): Promise<{
   error?: string;
 }> {
   if (!galleryId) return { exists: false, status: 400, error: 'ID Galeri kosong.' };
-  const cleanId = galleryId.trim().toUpperCase();
-
+  const cleanId = publicGalleryDocId(galleryId);
   try {
-    const res = await fetch(`/api/public/gallery/${encodeURIComponent(cleanId)}`);
-    if (res.ok) {
-      const data = await res.json();
-      return {
-        exists: true,
-        status: res.status,
-        isPublished: data.isPublished !== false && data.status !== 'disabled',
-        record: data,
-      };
-    }
+    const data = await readPublicGalleryFromFirestore(cleanId);
+    if (!data) return { exists: false, status: 404, error: 'Record tidak ditemukan di Firestore.' };
     return {
-      exists: false,
-      status: res.status,
-      error: res.status === 404 ? 'Record tidak ditemukan di database server.' : `Server error (${res.status})`,
+      exists: true,
+      status: 200,
+      isPublished: data.status !== 'disabled' && data.album?.isDeleted !== true,
+      record: data,
     };
   } catch (err: any) {
-    return {
-      exists: false,
-      status: 0,
-      error: err.message || 'Koneksi server gagal.',
-    };
+    return { exists: false, status: 0, error: err.message || 'Koneksi Firestore gagal.' };
   }
 }
 
@@ -1250,54 +1217,35 @@ export async function verifyServerRecord(galleryId: string): Promise<{
  */
 export async function fetchPublicGalleryBySlug(galleryId: string): Promise<PublicGalleryBundle | null> {
   if (!galleryId) return null;
-  const cleanId = galleryId.trim().toUpperCase();
+  const cleanId = publicGalleryDocId(galleryId);
 
   try {
-    // 1. Primary: Fetch from server API (Single Source of Truth)
-    const response = await fetch(`/api/public/gallery/${encodeURIComponent(cleanId)}`);
-    
-    if (response.ok) {
-      const data = await response.json();
+    const data = await readPublicGalleryFromFirestore(cleanId);
+    if (data) {
+      const album = data.album as Album;
+      const isExpired = album?.expiresAt && new Date(album.expiresAt) < new Date();
       return {
-        status: data.status || 'ok',
-        album: data.album,
-        photos: data.photos || [],
-        studio: data.studio,
+        status: data.status === 'disabled' || album?.isDeleted ? 'disabled' : isExpired ? 'expired' : 'ok',
+        album,
+        photos: isExpired ? [] : (data.photos || []),
+        studio: data.studio || DEFAULT_STUDIO_PROFILE,
         fromServer: true,
       };
     }
-
-    if (response.status === 410) {
-      const data = await response.json();
-      return {
-        status: 'disabled',
-        album: data.album || ({} as any),
-        photos: [],
-        studio: data.studio || ({} as any),
-        fromServer: true,
-      };
-    }
-  } catch (netErr) {
-    console.warn('[Public Gallery Lookup] Network request to server failed:', netErr);
+  } catch (err) {
+    console.warn('[Public Gallery Lookup] Firestore read failed:', err);
   }
 
-  // 2. Fallback / Auto-repair: If client has local copy (e.g. from studio device), auto-sync to server!
   const localBundle = getPublicGalleryBySlug(cleanId);
-  if (localBundle) {
-    // Attempt auto-repair sync to server in background
-    syncPublicGalleryToServer(localBundle.album, localBundle.photos, localBundle.studio).catch(() => {});
-    
-    const isExpired = localBundle.album.expiresAt && new Date(localBundle.album.expiresAt) < new Date();
-    return {
-      status: localBundle.album.isDeleted ? 'disabled' : isExpired ? 'expired' : 'ok',
-      album: localBundle.album,
-      photos: isExpired ? [] : localBundle.photos,
-      studio: localBundle.studio,
-      fromServer: false,
-    };
-  }
-
-  return null;
+  if (!localBundle) return null;
+  const isExpired = localBundle.album.expiresAt && new Date(localBundle.album.expiresAt) < new Date();
+  return {
+    status: localBundle.album.isDeleted ? 'disabled' : isExpired ? 'expired' : 'ok',
+    album: localBundle.album,
+    photos: isExpired ? [] : localBundle.photos,
+    studio: localBundle.studio,
+    fromServer: false,
+  };
 }
 
 export function getPublicGalleryBySlug(galleryId: string): PublicGalleryBundle | null {

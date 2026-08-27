@@ -322,25 +322,72 @@ export async function emptyTrash(uid: string): Promise<void> {
  * Helper to push public gallery metadata to Cloud Run backend
  */
 async function syncToBackendApi(publicData: PublicGalleryData): Promise<void> {
-  const endpoints: string[] = ['/api/gallery/sync'];
   const customApiBase = getApiBaseUrl();
+
+  const endpoints: string[] = [];
+
+  // PRIORITAS UTAMA:
+  // API production / Cloudflare Worker yang terhubung ke D1.
   if (customApiBase && customApiBase.trim() !== '') {
-    endpoints.push(`${customApiBase.trim().replace(/\/+$/, '')}/api/gallery/sync`);
+    endpoints.push(
+      `${customApiBase.trim().replace(/\/+$/, '')}/api/gallery/sync`
+    );
   }
+
+  // FALLBACK:
+  // Digunakan untuk environment yang menyediakan API pada domain yang sama.
+  endpoints.push('/api/gallery/sync');
+
+  let lastError: unknown = null;
 
   for (const ep of endpoints) {
     try {
-      await fetch(ep, {
+      console.log('[PUBLIC_GALLERY] Trying sync endpoint:', ep);
+
+      const response = await fetch(ep, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(publicData),
       });
-      console.log(`[PUBLIC_GALLERY] Synced to backend API: ${ep}`);
-      break;
-    } catch {
-      // ignore endpoint failure and try next
+
+      // fetch() tidak otomatis error pada HTTP 404/500/501,
+      // jadi status response wajib diperiksa.
+      if (!response.ok) {
+        const responseText = await response.text().catch(() => '');
+
+        throw new Error(
+          `HTTP ${response.status} ${response.statusText}${
+            responseText ? ` - ${responseText}` : ''
+          }`
+        );
+      }
+
+      console.log(
+        '[PUBLIC_GALLERY] Synced successfully to:',
+        ep
+      );
+
+      return;
+    } catch (error) {
+      lastError = error;
+
+      console.warn(
+        '[PUBLIC_GALLERY] Sync endpoint failed:',
+        ep,
+        error
+      );
     }
   }
+
+  throw new Error(
+    `Semua endpoint sinkronisasi galeri gagal.${
+      lastError instanceof Error
+        ? ` ${lastError.message}`
+        : ''
+    }`
+  );
 }
 
 export async function syncPublicGalleryFromAlbum(album: Album): Promise<void> {

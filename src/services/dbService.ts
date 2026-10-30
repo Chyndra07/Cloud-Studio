@@ -413,6 +413,7 @@ export async function syncPublicGalleryFromAlbum(album: Album): Promise<void> {
     coverPhotoUrl: album.coverPhotoUrl || (album.photos?.[0]?.thumbnailUrl || ''),
     bannerUrl: album.bannerUrl || profile?.bannerUrl || '',
     photos: album.photos || [],
+    folders: album.folders || [],
     studio: {
       studioName: profile?.studioName || 'Studio Foto Kami',
       logoUrl: profile?.logoUrl || '',

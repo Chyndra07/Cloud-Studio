@@ -426,3 +426,229 @@ export async function getDriveStorageQuota(accessToken: string): Promise<{
     userName: user.displayName || '',
   };
 }
+
+/**
+ * Creates a new subfolder in Google Drive under parentFolderId
+ */
+export async function createDriveSubfolder(
+  accessToken: string,
+  parentFolderId: string,
+  folderName: string
+): Promise<AlbumFolder> {
+  console.log('[GOOGLE_DRIVE] Creating subfolder:', folderName, 'under parent:', parentFolderId);
+  const res = await fetch(`${DRIVE_API_V3}/files`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: folderName.trim(),
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentFolderId],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.error('[GOOGLE_DRIVE] Create subfolder error:', err);
+    throw new Error(`Gagal membuat folder di Google Drive (${res.status})`);
+  }
+
+  const folder = await res.json();
+  // Make folder publicly accessible so public galleries can view files in it
+  await makeFilePublicReadable(accessToken, folder.id).catch(() => {});
+
+  return {
+    id: folder.id,
+    name: folder.name || folderName.trim(),
+    parentId: parentFolderId,
+    createdAt: new Date().toISOString(),
+    photoCount: 0,
+  };
+}
+
+/**
+ * Renames a Google Drive file or folder
+ */
+export async function renameDriveItem(
+  accessToken: string,
+  itemId: string,
+  newName: string
+): Promise<void> {
+  console.log('[GOOGLE_DRIVE] Renaming item:', itemId, 'to:', newName);
+  const res = await fetch(`${DRIVE_API_V3}/files/${itemId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: newName.trim(),
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.error('[GOOGLE_DRIVE] Rename error:', err);
+    throw new Error(`Gagal mengganti nama di Google Drive (${res.status})`);
+  }
+}
+
+/**
+ * Moves a file or folder in Google Drive from old parent to new parent (zero re-upload)
+ */
+export async function moveDriveFile(
+  accessToken: string,
+  fileId: string,
+  oldParentId: string,
+  newParentId: string
+): Promise<void> {
+  console.log('[GOOGLE_DRIVE] Moving file:', fileId, 'from:', oldParentId, 'to:', newParentId);
+  const url = `${DRIVE_API_V3}/files/${fileId}?addParents=${encodeURIComponent(newParentId)}&removeParents=${encodeURIComponent(oldParentId)}&fields=id,parents`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.error('[GOOGLE_DRIVE] Move error:', err);
+    throw new Error(`Gagal memindahkan item di Google Drive (${res.status})`);
+  }
+}
+
+/**
+ * Copies a file in Google Drive to a target folder
+ */
+export async function copyDriveFile(
+  accessToken: string,
+  fileId: string,
+  targetFolderId: string,
+  newName?: string
+): Promise<PhotoItem> {
+  console.log('[GOOGLE_DRIVE] Copying file:', fileId, 'to folder:', targetFolderId);
+  const bodyPayload: any = { parents: [targetFolderId] };
+  if (newName && newName.trim()) {
+    bodyPayload.name = newName.trim();
+  }
+
+  const res = await fetch(`${DRIVE_API_V3}/files/${fileId}/copy?fields=id,name,size,mimeType,webViewLink,webContentLink,thumbnailLink,imageMediaMetadata,createdTime`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(bodyPayload),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.error('[GOOGLE_DRIVE] Copy file error:', err);
+    throw new Error(`Gagal menyalin foto di Google Drive (${res.status})`);
+  }
+
+  const file = await res.json();
+  await makeFilePublicReadable(accessToken, file.id).catch(() => {});
+
+  return {
+    id: file.id,
+    driveFileId: file.id,
+    name: file.name,
+    size: Number(file.size) || 0,
+    mimeType: file.mimeType || 'image/jpeg',
+    webViewLink: file.webViewLink,
+    webContentLink: file.webContentLink,
+    thumbnailUrl: `https://lh3.googleusercontent.com/u/0/d/${file.id}=w1600` || file.thumbnailLink,
+    downloadUrl: `https://drive.google.com/uc?export=download&id=${file.id}`,
+    uploadedAt: file.createdTime || new Date().toISOString(),
+    width: file.imageMediaMetadata?.width,
+    height: file.imageMediaMetadata?.height,
+    folderId: targetFolderId,
+    parentFolderId: targetFolderId,
+  };
+}
+
+/**
+ * Deletes a Google Drive subfolder
+ */
+export async function deleteDriveFolder(
+  accessToken: string,
+  folderId: string
+): Promise<void> {
+  return deleteDrivePhoto(accessToken, folderId);
+}
+
+/**
+ * Lists all folders inside a specific parent folder
+ */
+export async function listFoldersInParent(
+  accessToken: string,
+  parentFolderId: string
+): Promise<AlbumFolder[]> {
+  const q = encodeURIComponent(`'${parentFolderId}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'`);
+  const res = await fetch(`${DRIVE_API_V3}/files?q=${q}&fields=files(id,name,createdTime,parents)&pageSize=100&orderBy=name`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Gagal memuat daftar subfolder dari Google Drive (${res.status})`);
+  }
+
+  const data = await res.json();
+  const files = data.files || [];
+
+  return files.map((f: any) => ({
+    id: f.id,
+    name: f.name,
+    parentId: parentFolderId,
+    createdAt: f.createdTime || new Date().toISOString(),
+    photoCount: 0,
+  }));
+}
+
+/**
+ * Recursively scans and collects all folders and photos in an album directory
+ */
+export async function listAllAlbumFoldersAndPhotos(
+  accessToken: string,
+  rootFolderId: string
+): Promise<{ photos: PhotoItem[]; folders: AlbumFolder[] }> {
+  const allPhotos: PhotoItem[] = [];
+  const allFolders: AlbumFolder[] = [];
+
+  async function scanFolder(currentFolderId: string, currentPath: string, parentId?: string) {
+    // 1. Fetch folders and photos in parallel
+    const [folderList, photoList] = await Promise.all([
+      listFoldersInParent(accessToken, currentFolderId).catch(() => []),
+      listPhotosInFolder(accessToken, currentFolderId).catch(() => []),
+    ]);
+
+    // Tag photos with current folder info
+    photoList.forEach((p) => {
+      p.folderId = currentFolderId;
+      p.parentFolderId = currentFolderId;
+      p.folderName = currentFolderId === rootFolderId ? '' : currentPath;
+      allPhotos.push(p);
+    });
+
+    // Process each subfolder
+    for (const f of folderList) {
+      const subPath = currentPath ? `${currentPath}/${f.name}` : f.name;
+      f.path = subPath;
+      f.parentId = currentFolderId;
+      allFolders.push(f);
+      await scanFolder(f.id, subPath, currentFolderId);
+    }
+  }
+
+  await scanFolder(rootFolderId, '', undefined);
+
+  // Calculate photoCount for each folder (including descendants)
+  allFolders.forEach((f) => {
+    const count = allPhotos.filter((p) => p.folderId === f.id || (p.folderName && p.folderName.startsWith(f.name))).length;
+    f.photoCount = count;
+  });
+
+  return { photos: allPhotos, folders: allFolders };
+}

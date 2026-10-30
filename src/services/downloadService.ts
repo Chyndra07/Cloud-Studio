@@ -78,7 +78,12 @@ export async function downloadPhotosAsZip(
 
       if (res.ok) {
         const arrayBuffer = await res.arrayBuffer();
-        zip.file(currentName, arrayBuffer);
+        if (photo.folderName && photo.folderName.trim()) {
+          // Place photo inside its folder structure in the ZIP archive
+          zip.file(`${photo.folderName.trim()}/${currentName}`, arrayBuffer);
+        } else {
+          zip.file(currentName, arrayBuffer);
+        }
       } else {
         console.warn(`[ZIP] Could not fetch ${currentName}, skipping in ZIP.`);
       }

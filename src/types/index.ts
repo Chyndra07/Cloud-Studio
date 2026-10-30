@@ -30,6 +30,15 @@ export interface StudioProfile {
 
 export type ExpirationAction = 'disable' | 'trash';
 
+export interface AlbumFolder {
+  id: string; // Google Drive Folder ID
+  name: string;
+  parentId?: string; // ID folder induk (atau driveFolderId album jika root)
+  path?: string; // e.g. "Akad Nikah" atau "Akad Nikah/Sungkeman"
+  createdAt?: string;
+  photoCount?: number;
+}
+
 export interface PhotoItem {
   id: string; // Drive file ID or generated unique ID
   driveFileId: string;
@@ -43,6 +52,9 @@ export interface PhotoItem {
   uploadedAt: string;
   width?: number;
   height?: number;
+  folderId?: string;
+  folderName?: string;
+  parentFolderId?: string;
 }
 
 export interface Album {
@@ -66,6 +78,7 @@ export interface Album {
   coverPhotoUrl?: string;
   bannerUrl?: string; // Optional per-album custom banner override
   photos?: PhotoItem[];
+  folders?: AlbumFolder[];
   createdAt: string;
   updatedAt: string;
 }
@@ -85,6 +98,7 @@ export interface PublicGalleryData {
   coverPhotoUrl?: string;
   bannerUrl?: string;
   photos: PhotoItem[];
+  folders?: AlbumFolder[];
   studio: {
     studioName: string;
     logoUrl?: string;

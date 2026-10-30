@@ -31,6 +31,7 @@ import {
   CornerDownRight,
   X,
   AlertCircle,
+  Search,
 } from 'lucide-react';
 import { Album, PhotoItem, AlbumFolder, StudioProfile, ClientSelection } from '../types';
 import { PhotoUploader } from '../components/upload/PhotoUploader';
@@ -51,6 +52,7 @@ import { FolderCard } from '../components/albums/FolderCard';
 import { CreateFolderModal } from '../components/albums/CreateFolderModal';
 import { RenameItemModal } from '../components/albums/RenameItemModal';
 import { MoveCopyModal } from '../components/albums/MoveCopyModal';
+import { DeleteFolderModal } from '../components/albums/DeleteFolderModal';
 
 interface AlbumDetailPageProps {
   album: Album;
@@ -112,6 +114,20 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
     mode: 'move',
     targetPhotoIds: [],
   });
+
+  // Safe Folder Deletion Modal State
+  const [deleteFolderModal, setDeleteFolderModal] = useState<{
+    isOpen: boolean;
+    folder: AlbumFolder | null;
+    photoCount: number;
+  }>({
+    isOpen: false,
+    folder: null,
+    photoCount: 0,
+  });
+
+  // Photo Search State
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Action feedback alert
   const [actionNotice, setActionNotice] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -234,13 +250,49 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
     }
   };
 
-  // 3. Delete Folder
-  const handleDeleteFolder = async (folder: AlbumFolder) => {
-    if (!confirm(`Hapus folder "${folder.name}" beserta seluruh isinya dari Google Drive?`)) return;
+  // 3. Initiate Safe Folder Deletion
+  const handleDeleteFolder = (folder: AlbumFolder) => {
+    const insideCount = photos.filter(
+      (p) => p.folderId === folder.id || (p.folderName && p.folderName.startsWith(folder.name))
+    ).length;
+    setDeleteFolderModal({
+      isOpen: true,
+      folder,
+      photoCount: insideCount,
+    });
+  };
+
+  // 3b. Confirm Safe Folder Deletion
+  const handleConfirmDeleteFolder = async (folder: AlbumFolder, movePhotosToRoot: boolean) => {
     try {
+      const folderPhotos = photos.filter(
+        (p) => p.folderId === folder.id || (p.folderName && p.folderName.startsWith(folder.name))
+      );
+
+      let updatedPhotos = [...photos];
+
+      if (movePhotosToRoot && folderPhotos.length > 0) {
+        // Move all photos in this folder back to album root in Google Drive
+        for (const p of folderPhotos) {
+          await moveDriveFile(accessToken, p.driveFileId, album.driveFolderId, folder.id).catch(() => {});
+        }
+        updatedPhotos = updatedPhotos.map((p) => {
+          if (p.folderId === folder.id || (p.folderName && p.folderName.startsWith(folder.name))) {
+            return { ...p, folderId: undefined, folderName: '' };
+          }
+          return p;
+        });
+      } else if (!movePhotosToRoot && folderPhotos.length > 0) {
+        // Folder and photos are purged in Google Drive
+        updatedPhotos = updatedPhotos.filter(
+          (p) => !(p.folderId === folder.id || (p.folderName && p.folderName.startsWith(folder.name)))
+        );
+      }
+
+      // Delete folder in Google Drive
       await deleteDriveFolder(accessToken, folder.id);
+
       const updatedFolders = folders.filter((f) => f.id !== folder.id && f.parentId !== folder.id);
-      const updatedPhotos = photos.filter((p) => p.folderId !== folder.id);
       setFolders(updatedFolders);
       setPhotos(updatedPhotos);
 
@@ -255,9 +307,15 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
       if (currentFolderId === folder.id) {
         setCurrentFolderId(folder.parentId || null);
       }
-      showNotice(`Folder "${folder.name}" berhasil dihapus.`);
+
+      showNotice(
+        movePhotosToRoot && folderPhotos.length > 0
+          ? `Folder "${folder.name}" dihapus. ${folderPhotos.length} foto berhasil diamankan ke direktori utama.`
+          : `Folder "${folder.name}" berhasil dihapus.`
+      );
     } catch (err: any) {
       showNotice(err?.message || 'Gagal menghapus folder.', 'error');
+      throw err;
     }
   };
 
@@ -478,6 +536,15 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
       : !p.folderId || p.folderId === album.driveFolderId
   );
 
+  // Photo Search Filters
+  const filteredAllPhotos = photos.filter((p) =>
+    p.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
+  );
+
+  const filteredCurrentLevelPhotos = currentLevelPhotos.filter((p) =>
+    p.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
+  );
+
   // Active folder details for breadcrumb
   const currentFolderObj = currentFolderId ? folders.find((f) => f.id === currentFolderId) : null;
 
@@ -660,13 +727,13 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
       {activeTab === 'photos' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
-                onClick={() => handleSelectAllCurrentPhotos(photos)}
+                onClick={() => handleSelectAllCurrentPhotos(filteredAllPhotos)}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-all"
               >
-                {photos.length > 0 && photos.every((p) => selectedPhotoIds.includes(p.driveFileId)) ? (
+                {filteredAllPhotos.length > 0 && filteredAllPhotos.every((p) => selectedPhotoIds.includes(p.driveFileId)) ? (
                   <>
                     <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
                     <span>Batalkan Pilih Semua</span>
@@ -680,18 +747,46 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
               </button>
 
               <span className="text-xs text-slate-500">
-                {selectedPhotoIds.length > 0 ? `${selectedPhotoIds.length} foto dipilih` : `${photos.length} total foto`}
+                {selectedPhotoIds.length > 0
+                  ? `${selectedPhotoIds.length} foto dipilih`
+                  : searchQuery.trim()
+                  ? `${filteredAllPhotos.length} dari ${photos.length} foto`
+                  : `${photos.length} total foto`}
               </span>
             </div>
 
-            <button
-              onClick={loadDriveContent}
-              disabled={isLoadingContent}
-              className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-blue-600"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingContent ? 'animate-spin' : ''}`} />
-              Segarkan Konten dari Drive
-            </button>
+            <div className="flex items-center gap-2.5 flex-1 max-w-sm justify-end">
+              {/* Photo Search Input */}
+              <div className="relative w-full">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Cari nama file foto..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-xs"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                    title="Hapus pencarian"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              <button
+                onClick={loadDriveContent}
+                disabled={isLoadingContent}
+                className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-blue-600 shrink-0 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 transition-all"
+                title="Segarkan Konten dari Google Drive"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingContent ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Segarkan</span>
+              </button>
+            </div>
           </div>
 
           {photos.length === 0 ? (
@@ -713,9 +808,25 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
                 + Unggah Foto Sekarang
               </button>
             </div>
+          ) : filteredAllPhotos.length === 0 ? (
+            <div className="text-center py-16 px-4 bg-white border border-slate-200 rounded-3xl">
+              <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <Search className="w-6 h-6" />
+              </div>
+              <h4 className="text-sm font-bold text-slate-800">Tidak Ada Foto yang Cocok</h4>
+              <p className="text-xs text-slate-500 mt-1 mb-4">
+                Tidak ditemukan foto dengan kata kunci "{searchQuery}".
+              </p>
+              <button
+                onClick={() => setSearchQuery('')}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-all"
+              >
+                Hapus Pencarian
+              </button>
+            </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 items-start">
-              {photos.map((photo) => {
+              {filteredAllPhotos.map((photo) => {
                 const isSelected = selectedPhotoIds.includes(photo.driveFileId);
 
                 return (
@@ -942,6 +1053,21 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             {/* Breadcrumb Path */}
             <div className="flex items-center gap-2 flex-wrap text-xs">
+              {currentFolderId !== null && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const parent = folders.find((f) => f.id === currentFolderObj?.parentId);
+                    setCurrentFolderId(parent ? parent.id : null);
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold transition-all border border-slate-200"
+                  title="Kembali ke folder sebelumnya"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Kembali</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setCurrentFolderId(null)}
@@ -1007,7 +1133,25 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
               <span>Daftar Subfolder ({currentLevelFolders.length})</span>
             </h4>
 
-            {currentLevelFolders.length === 0 ? (
+            {folders.length === 0 ? (
+              <div className="text-center py-12 px-4 bg-white border-2 border-dashed border-slate-200 rounded-3xl">
+                <div className="w-14 h-14 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <FolderPlus className="w-7 h-7" />
+                </div>
+                <h4 className="text-base font-bold text-slate-800">Belum Ada Struktur Folder</h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-5">
+                  Kelompokkan foto pelanggan ke dalam folder (misal: "Akad", "Resepsi", "Family") agar galeri lebih rapi dan profesional.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateFolderOpen(true)}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all inline-flex items-center gap-2"
+                >
+                  <FolderPlus className="w-4 h-4" />
+                  <span>+ Buat Folder Baru Sekarang</span>
+                </button>
+              </div>
+            ) : currentLevelFolders.length === 0 ? (
               <div className="p-6 text-center bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-500">
                 <Folder className="w-8 h-8 text-slate-300 mx-auto mb-1.5" />
                 <p>Belum ada subfolder di level ini. Klik <strong>"+ Buat Folder Baru"</strong> untuk mengelompokkan foto.</p>
@@ -1038,22 +1182,23 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
 
           {/* Photos Inside Current Folder Level */}
           <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
                 <ImageIcon className="w-4 h-4 text-blue-500" />
                 <span>
                   Foto di {currentFolderObj ? `Folder "${currentFolderObj.name}"` : 'Direktori Utama'} (
-                  {currentLevelPhotos.length})
+                  {searchQuery.trim() ? `${filteredCurrentLevelPhotos.length} dari ${currentLevelPhotos.length}` : currentLevelPhotos.length})
                 </span>
               </h4>
 
               {currentLevelPhotos.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => handleSelectAllCurrentPhotos(currentLevelPhotos)}
+                  onClick={() => handleSelectAllCurrentPhotos(filteredCurrentLevelPhotos)}
                   className="text-xs font-semibold text-blue-600 hover:text-blue-800"
                 >
-                  {currentLevelPhotos.every((p) => selectedPhotoIds.includes(p.driveFileId))
+                  {filteredCurrentLevelPhotos.length > 0 &&
+                  filteredCurrentLevelPhotos.every((p) => selectedPhotoIds.includes(p.driveFileId))
                     ? 'Batalkan Pilih Semua'
                     : 'Pilih Semua di Folder Ini'}
                 </button>
@@ -1065,9 +1210,14 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
                 <ImageIcon className="w-8 h-8 text-slate-300 mx-auto mb-1.5" />
                 <p>Tidak ada foto langsung di dalam folder ini.</p>
               </div>
+            ) : filteredCurrentLevelPhotos.length === 0 ? (
+              <div className="p-8 text-center bg-white border border-slate-200 rounded-2xl text-xs text-slate-500">
+                <Search className="w-8 h-8 text-slate-300 mx-auto mb-1.5" />
+                <p>Tidak ada foto yang cocok dengan pencarian "{searchQuery}" di folder ini.</p>
+              </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 items-start">
-                {currentLevelPhotos.map((photo) => {
+                {filteredCurrentLevelPhotos.map((photo) => {
                   const isSelected = selectedPhotoIds.includes(photo.driveFileId);
 
                   return (
@@ -1457,6 +1607,15 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
             await handleCopyPhotos(targetId, moveCopyModal.targetPhotoIds);
           }
         }}
+      />
+
+      {/* 3b. Safe Delete Folder Modal */}
+      <DeleteFolderModal
+        isOpen={deleteFolderModal.isOpen}
+        folder={deleteFolderModal.folder}
+        photoCount={deleteFolderModal.photoCount}
+        onClose={() => setDeleteFolderModal((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmDeleteFolder}
       />
 
       {/* 4. Upload Photos Modal */}

@@ -1433,7 +1433,7 @@ export const AlbumDetail: React.FC<AlbumDetailProps> = ({
                   <p className="text-xs text-slate-500 font-medium">Folder ini masih kosong. Anda dapat mengunggah atau memindahkan foto ke folder ini.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 items-start">
                   {group.photos.map((photo) => {
                     const isSelected = selectedPhotoIds.includes(photo.id);
                     const formattedSize = formatPhotoSize(photo.fileSize);
@@ -1443,16 +1443,24 @@ export const AlbumDetail: React.FC<AlbumDetailProps> = ({
                       <div
                         key={photo.id}
                         onClick={() => toggleSelectPhoto(photo.id)}
-                        className={`group relative aspect-square rounded-xl overflow-hidden bg-slate-100 border transition cursor-pointer shadow-2xs ${
+                        className={`group relative aspect-[9/16] rounded-xl overflow-hidden bg-slate-950 border transition cursor-pointer shadow-2xs flex items-center justify-center ${
                           isSelected
                             ? 'border-blue-600 ring-2 ring-blue-500/30'
                             : 'border-slate-200 hover:border-blue-300'
                         }`}
+                        style={{ aspectRatio: '9 / 16', width: '100%' }}
                       >
                         <img
                           src={photo.thumbnailUrl}
+                          alt=""
+                          aria-hidden="true"
+                          className="absolute inset-0 w-full h-full object-cover opacity-25 filter blur-lg scale-110 pointer-events-none"
+                        />
+                        <img
+                          src={photo.thumbnailUrl}
                           alt={photo.filename}
-                          className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                          className="relative z-10 max-w-full max-h-full w-full h-full transition duration-300 group-hover:scale-105"
+                          style={{ objectFit: 'contain', objectPosition: 'center center' }}
                           referrerPolicy="no-referrer"
                           loading="lazy"
                         />
@@ -1532,16 +1540,24 @@ export const AlbumDetail: React.FC<AlbumDetailProps> = ({
               <div
                 key={photo.id}
                 onClick={() => toggleSelectPhoto(photo.id)}
-                className={`group relative aspect-square rounded-xl overflow-hidden bg-slate-100 border transition cursor-pointer shadow-2xs ${
+                className={`group relative aspect-[9/16] rounded-xl overflow-hidden bg-slate-950 border transition cursor-pointer shadow-2xs flex items-center justify-center ${
                   isSelected
                     ? 'border-blue-600 ring-2 ring-blue-500/30'
                     : 'border-slate-200 hover:border-blue-300'
                 }`}
+                style={{ aspectRatio: '9 / 16', width: '100%' }}
               >
                 <img
                   src={photo.thumbnailUrl}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 w-full h-full object-cover opacity-25 filter blur-lg scale-110 pointer-events-none"
+                />
+                <img
+                  src={photo.thumbnailUrl}
                   alt={photo.filename}
-                  className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                  className="relative z-10 max-w-full max-h-full w-full h-full transition duration-300 group-hover:scale-105"
+                  style={{ objectFit: 'contain', objectPosition: 'center center' }}
                   referrerPolicy="no-referrer"
                   loading="lazy"
                 />

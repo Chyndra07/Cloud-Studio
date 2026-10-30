@@ -489,7 +489,7 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-5 items-start">
               {gallery.photos.map((photo, index) => {
                 const isSelected = selectedPhotoIds.includes(photo.driveFileId);
                 const note = photoNotes[photo.driveFileId];
@@ -504,15 +504,26 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
                     }`}
                   >
                     {/* Thumbnail Image */}
+                    {/* Thumbnail Image (Portrait 9:16) */}
                     <div
                       onClick={() => setPreviewIndex(index)}
-                      className="relative aspect-square bg-slate-100 overflow-hidden cursor-pointer"
+                      className="relative w-full aspect-[9/16] bg-slate-950 overflow-hidden flex items-center justify-center cursor-pointer rounded-t-2xl shrink-0"
+                      style={{ aspectRatio: '9 / 16', width: '100%' }}
                     >
+                      {/* Ambient subtle blur backdrop */}
+                      <img
+                        src={photo.thumbnailUrl || photo.webViewLink}
+                        alt=""
+                        aria-hidden="true"
+                        className="absolute inset-0 w-full h-full object-cover opacity-25 filter blur-lg scale-110 pointer-events-none"
+                      />
+                      {/* 100% Uncropped Photo with object-contain */}
                       <img
                         src={photo.thumbnailUrl || photo.webViewLink}
                         alt={photo.name}
                         loading="lazy"
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        className="relative z-10 max-w-full max-h-full w-full h-full transition-transform duration-300 group-hover:scale-[1.02]"
+                        style={{ objectFit: 'contain', objectPosition: 'center center' }}
                       />
 
                       {/* Favorite Heart Button */}

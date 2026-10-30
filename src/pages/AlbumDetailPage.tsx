@@ -349,7 +349,7 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 items-start">
               {photos.map((photo) => (
                 <div
                   key={photo.driveFileId}
@@ -358,13 +358,23 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
                   {/* Image container */}
                   <div
                     onClick={() => setPreviewPhoto(photo)}
-                    className="relative aspect-square bg-slate-100 overflow-hidden cursor-pointer"
+                    className="relative w-full aspect-[9/16] bg-slate-950 overflow-hidden flex items-center justify-center cursor-pointer rounded-t-2xl shrink-0"
+                    style={{ aspectRatio: '9 / 16', width: '100%' }}
                   >
+                    {/* Ambient subtle blur backdrop for uncropped aesthetic */}
+                    <img
+                      src={photo.thumbnailUrl || photo.webViewLink}
+                      alt=""
+                      aria-hidden="true"
+                      className="absolute inset-0 w-full h-full object-cover opacity-25 filter blur-lg scale-110 pointer-events-none"
+                    />
+                    {/* 100% Uncropped Photo with object-contain */}
                     <img
                       src={photo.thumbnailUrl || photo.webViewLink}
                       alt={photo.name}
                       loading="lazy"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      className="relative z-10 max-w-full max-h-full w-full h-full transition-transform duration-300 group-hover:scale-[1.02]"
+                      style={{ objectFit: 'contain', objectPosition: 'center center' }}
                     />
 
                     {/* Hover Overlay */}
@@ -471,7 +481,7 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 items-start">
               {selectedPhotosList.map((photo) => {
                 const note = clientSelection?.notes?.[photo.driveFileId];
 
@@ -480,13 +490,26 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
                     key={photo.driveFileId}
                     className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between"
                   >
-                    <div className="relative aspect-square bg-slate-100">
+                    <div
+                      className="relative w-full aspect-[9/16] bg-slate-950 overflow-hidden flex items-center justify-center rounded-t-2xl shrink-0 cursor-pointer"
+                      style={{ aspectRatio: '9 / 16', width: '100%' }}
+                      onClick={() => setPreviewPhoto(photo)}
+                    >
+                      {/* Ambient subtle blur backdrop */}
+                      <img
+                        src={photo.thumbnailUrl || photo.webViewLink}
+                        alt=""
+                        aria-hidden="true"
+                        className="absolute inset-0 w-full h-full object-cover opacity-25 filter blur-lg scale-110 pointer-events-none"
+                      />
+                      {/* 100% Uncropped Photo with object-contain */}
                       <img
                         src={photo.thumbnailUrl || photo.webViewLink}
                         alt={photo.name}
-                        className="w-full h-full object-cover"
+                        className="relative z-10 max-w-full max-h-full w-full h-full"
+                        style={{ objectFit: 'contain', objectPosition: 'center center' }}
                       />
-                      <span className="absolute top-2 right-2 p-1.5 bg-rose-500 text-white rounded-full shadow-sm">
+                      <span className="absolute top-2 right-2 z-20 p-1.5 bg-rose-500 text-white rounded-full shadow-sm">
                         <Heart className="w-3.5 h-3.5 fill-current" />
                       </span>
                     </div>

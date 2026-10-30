@@ -1,3 +1,11 @@
+export type FontFamilyType = 'Inter' | 'Plus Jakarta Sans' | 'SF Pro Display' | 'Poppins' | 'Roboto';
+export type FontSizeScale = 'xs' | 's' | 'm' | 'l' | 'xl' | 'xxl' | 'xxxl';
+
+export interface StudioTypography {
+  fontFamily: FontFamilyType;
+  fontSize: FontSizeScale;
+}
+
 export interface StudioProfile {
   uid: string;
   studioName: string;
@@ -13,6 +21,9 @@ export interface StudioProfile {
   brandColor?: string;
   driveRootFolderId?: string;
   driveRootFolderName?: string;
+  typography?: StudioTypography;
+  fontFamily?: FontFamilyType;
+  fontSize?: FontSizeScale;
   createdAt: string;
   updatedAt: string;
 }
@@ -82,6 +93,9 @@ export interface PublicGalleryData {
     emailContact?: string;
     brandColor?: string;
     website?: string;
+    typography?: StudioTypography;
+    fontFamily?: FontFamilyType;
+    fontSize?: FontSizeScale;
   };
   createdAt: string;
   updatedAt: string;

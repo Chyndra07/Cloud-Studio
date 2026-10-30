@@ -1,1 +1,28 @@
 @import "tailwindcss";
+
+:root {
+  --app-font-family: 'Inter', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Display', Roboto, sans-serif;
+  --app-font-size-base: 16px;
+  --app-line-height-base: 1.5;
+  font-family: var(--app-font-family);
+  font-size: var(--app-font-size-base);
+  transition: font-size 180ms ease, font-family 180ms ease;
+}
+
+body {
+  font-family: var(--app-font-family) !important;
+  font-size: 1rem;
+  line-height: var(--app-line-height-base);
+  transition: font-family 180ms ease, font-size 180ms ease;
+}
+
+/* Ensure all interactive and form components inherit the global typography */
+button,
+input,
+select,
+textarea,
+optgroup,
+pre,
+code {
+  font-family: inherit;
+}

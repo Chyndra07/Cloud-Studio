@@ -24,6 +24,7 @@ import { getPublicGalleryData, getClientSelection, saveClientSelection } from '.
 import { downloadSinglePhoto, downloadPhotosAsZip } from '../services/downloadService';
 import { ModernStudioBanner } from '../components/banner/ModernStudioBanner';
 import { getGalleryPhotoPreviewUrl, getGalleryPhotoFallbackUrl } from '../services/photoService';
+import { applyTypography } from '../services/typographyService';
 
 interface PublicGalleryPageProps {
   galleryId: string;
@@ -45,6 +46,20 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
   const [photoNotes, setPhotoNotes] = useState<Record<string, string>>({});
   const [editingNotePhotoId, setEditingNotePhotoId] = useState<string | null>(null);
   const [activeNoteText, setActiveNoteText] = useState<string>('');
+
+  // Apply Studio Typography for Public Gallery View
+  useEffect(() => {
+    if (gallery?.studio?.typography) {
+      applyTypography(gallery.studio.typography);
+    } else if (gallery?.studio?.fontFamily || gallery?.studio?.fontSize) {
+      applyTypography({
+        fontFamily: gallery.studio.fontFamily || 'Inter',
+        fontSize: gallery.studio.fontSize || 'm',
+      });
+    } else {
+      applyTypography({ fontFamily: 'Inter', fontSize: 'm' });
+    }
+  }, [gallery]);
 
   // Lightbox Preview
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);

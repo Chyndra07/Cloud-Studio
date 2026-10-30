@@ -15,6 +15,7 @@ import { BrandingPage } from './pages/BrandingPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { PublicGalleryPage } from './pages/PublicGalleryPage';
 import { LicenseGuard } from './license/LicenseGuard';
+import { applyTypography } from './services/typographyService';
 import {
   Camera,
   HardDrive,
@@ -58,6 +59,22 @@ export default function App() {
     connectDrive,
     error: authError,
   } = useAuth();
+
+  // Dynamic Global Typography Hook for Studio Dashboard
+  useEffect(() => {
+    if (!publicGalleryId) {
+      if (profile?.typography) {
+        applyTypography(profile.typography);
+      } else if (profile?.fontFamily || profile?.fontSize) {
+        applyTypography({
+          fontFamily: profile.fontFamily || 'Inter',
+          fontSize: profile.fontSize || 'm',
+        });
+      } else {
+        applyTypography({ fontFamily: 'Inter', fontSize: 'm' });
+      }
+    }
+  }, [profile?.typography, profile?.fontFamily, profile?.fontSize, publicGalleryId]);
 
   // Studio Data Hook
   const {
@@ -412,6 +429,7 @@ export default function App() {
                     onRefreshData={refreshData}
                     onRefreshLicense={refreshLicense}
                     onOpenDeveloperPanel={openDeveloperPanel}
+                    onUpdateProfile={updateProfile}
                   />
                 )}
               </main>

@@ -380,13 +380,14 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
       <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 sm:px-8 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold shrink-0 overflow-hidden shadow-sm"
-            style={{ backgroundColor: brandColor }}
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shrink-0 overflow-hidden shadow-xs border border-slate-200/60 bg-white"
           >
             {gallery.studio.logoUrl ? (
-              <img src={gallery.studio.logoUrl} alt="Logo" className="w-full h-full object-cover" />
+              <img src={gallery.studio.logoUrl} alt="Logo" className="w-full h-full object-contain p-1" />
             ) : (
-              <Camera className="w-4 h-4" />
+              <div className="w-full h-full flex items-center justify-center text-white" style={{ backgroundColor: brandColor }}>
+                <Camera className="w-4 h-4" />
+              </div>
             )}
           </div>
           <div>

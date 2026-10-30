@@ -1,6 +1,24 @@
-import React, { useState } from 'react';
-import { Palette, Check, Camera, Phone, Mail, MapPin, Globe, Shield, Sparkles } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  Palette,
+  Check,
+  Camera,
+  Phone,
+  Mail,
+  MapPin,
+  Globe,
+  Sparkles,
+  UploadCloud,
+  Image as ImageIcon,
+  Trash2,
+  RefreshCw,
+  AlertCircle,
+} from 'lucide-react';
 import { StudioProfile } from '../types';
+import {
+  validateLogoFile,
+  processStudioLogo,
+} from '../services/logoStorageService';
 
 interface BrandingPageProps {
   profile: StudioProfile | null;
@@ -25,29 +43,120 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
   isProcessing,
 }) => {
   const [studioName, setStudioName] = useState(profile?.studioName || '');
-  const [logoUrl, setLogoUrl] = useState(profile?.logoUrl || '');
   const [whatsappNumber, setWhatsappNumber] = useState(profile?.whatsappNumber || '');
   const [emailContact, setEmailContact] = useState(profile?.emailContact || profile?.ownerEmail || '');
   const [address, setAddress] = useState(profile?.address || '');
   const [website, setWebsite] = useState(profile?.website || '');
   const [brandColor, setBrandColor] = useState(profile?.brandColor || '#2563eb');
+
+  // Logo management states
+  const [logoUrl, setLogoUrl] = useState(profile?.logoUrl || '');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(profile?.logoUrl || null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isSavingLogo, setIsSavingLogo] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync state if profile prop changes from server
+  useEffect(() => {
+    if (profile) {
+      setStudioName(profile.studioName || '');
+      setWhatsappNumber(profile.whatsappNumber || '');
+      setEmailContact(profile.emailContact || profile.ownerEmail || '');
+      setAddress(profile.address || '');
+      setWebsite(profile.website || '');
+      setBrandColor(profile.brandColor || '#2563eb');
+      if (!selectedFile) {
+        setLogoUrl(profile.logoUrl || '');
+        setPreviewUrl(profile.logoUrl || null);
+      }
+    }
+  }, [profile]);
+
+  const handleFileSelect = (file: File) => {
+    setUploadError(null);
+    const validation = validateLogoFile(file);
+    if (!validation.valid) {
+      setUploadError(validation.error || 'File tidak valid.');
+      return;
+    }
+
+    setSelectedFile(file);
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewUrl(objectUrl);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileSelect(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleRemoveLogo = () => {
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setLogoUrl('');
+    setShowDeleteConfirm(false);
+    setUploadError(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onSaveProfile({
-      studioName: studioName.trim(),
-      logoUrl: logoUrl.trim(),
-      whatsappNumber: whatsappNumber.trim(),
-      emailContact: emailContact.trim(),
-      address: address.trim(),
-      website: website.trim(),
-      brandColor,
-    });
+    setIsSavingLogo(true);
+    setUploadError(null);
 
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    try {
+      let finalLogoUrl = logoUrl;
+
+      // If a new logo file was selected, process and store it
+      if (selectedFile && profile?.uid) {
+        finalLogoUrl = await processStudioLogo(profile.uid, selectedFile);
+        setLogoUrl(finalLogoUrl);
+        setPreviewUrl(finalLogoUrl);
+        setSelectedFile(null);
+      }
+
+      await onSaveProfile({
+        studioName: studioName.trim(),
+        logoUrl: finalLogoUrl.trim(),
+        whatsappNumber: whatsappNumber.trim(),
+        emailContact: emailContact.trim(),
+        address: address.trim(),
+        website: website.trim(),
+        brandColor,
+      });
+
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('[BRANDING] Save profile error:', err);
+      setUploadError(err?.message || 'Gagal menyimpan profil & logo studio.');
+    } finally {
+      setIsSavingLogo(false);
+    }
   };
+
+  const isBusy = isProcessing || isSavingLogo;
 
   return (
     <div className="space-y-6 pb-16">
@@ -78,21 +187,148 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
               />
             </div>
 
-            {/* Logo URL */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                URL Logo Studio (PNG / JPG / WEBP)
-              </label>
+            {/* LOGO STUDIO COMPONENT */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-blue-600" /> Logo Studio
+                </label>
+                <span className="text-[11px] text-slate-400 font-medium">
+                  PNG, JPG, atau WEBP • Maks. 5 MB
+                </span>
+              </div>
+
+              {/* Hidden File Input */}
               <input
-                type="url"
-                value={logoUrl}
-                onChange={(e) => setLogoUrl(e.target.value)}
-                placeholder="https://domain.com/logo.png"
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    handleFileSelect(e.target.files[0]);
+                  }
+                  e.target.value = '';
+                }}
               />
-              <p className="text-[11px] text-slate-400 mt-1">
-                Gunakan tautan gambar berlatar transparan untuk hasil terbaik pada QR card.
-              </p>
+
+              {/* Error Notice */}
+              {uploadError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span>{uploadError}</span>
+                </div>
+              )}
+
+              {/* If Logo Available (Preview State) */}
+              {previewUrl ? (
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-4 w-full sm:w-auto">
+                    {/* Checkerboard container to verify transparency */}
+                    <div className="w-20 h-20 rounded-xl border border-slate-200 bg-white relative overflow-hidden flex items-center justify-center shrink-0 shadow-inner [background-image:linear-gradient(45deg,#f1f5f9_25%,transparent_25%),linear-gradient(-45deg,#f1f5f9_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#f1f5f9_75%),linear-gradient(-45deg,transparent_75%,#f1f5f9_75%)] [background-size:12px_12px] [background-position:0_0,0_6px,6px_-6px,-6px_0]">
+                      <img
+                        src={previewUrl}
+                        alt="Pratinjau Logo"
+                        className="w-full h-full object-contain p-1.5 transition-transform hover:scale-105"
+                      />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-900 truncate">
+                        {selectedFile ? selectedFile.name : 'Logo Studio Aktif'}
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        {selectedFile
+                          ? `${(selectedFile.size / 1024 / 1024).toFixed(2)} MB • Siap disimpan`
+                          : 'Tersimpan & Aktif pada Galeri Pelanggan'}
+                      </p>
+                      <span className="inline-block mt-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-semibold rounded-md border border-emerald-200">
+                        {selectedFile ? 'Perubahan Belum Disimpan' : 'Logo Terpasang'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Ganti Logo</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Hapus</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Drag & Drop Upload Area (Empty State) */
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-all duration-200 flex flex-col items-center justify-center gap-2 ${
+                    isDragging
+                      ? 'border-blue-500 bg-blue-50/60 scale-[1.01]'
+                      : 'border-slate-200 hover:border-blue-400 bg-slate-50/50 hover:bg-blue-50/20'
+                  }`}
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center shadow-xs mb-1">
+                    <UploadCloud className="w-6 h-6" />
+                  </div>
+                  <p className="text-xs font-bold text-slate-800">
+                    Klik untuk memilih logo atau seret file ke sini
+                  </p>
+                  <p className="text-[11px] text-slate-400 max-w-sm">
+                    Gunakan file gambar berlatar belakang transparan (PNG direkomendasikan) agar logo tampil elegan pada QR Card dan portal pelanggan.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                    className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm shadow-blue-500/20 transition-all cursor-pointer"
+                  >
+                    Pilih File Logo
+                  </button>
+                </div>
+              )}
+
+              {/* Delete Confirmation Dialog */}
+              {showDeleteConfirm && (
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between gap-3 animate-fade-in">
+                  <div className="flex items-center gap-2 text-rose-800 text-xs">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>Hapus logo studio ini? Klik "Simpan Profil" setelahnya untuk memperbarui.</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleRemoveLogo}
+                      className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+                    >
+                      Ya, Hapus
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="px-3 py-1 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Nomor WhatsApp & Email */}
@@ -194,15 +430,15 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
             <div className="pt-4 border-t border-slate-100 flex items-center gap-3">
               <button
                 type="submit"
-                disabled={isProcessing}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 active:scale-95 transition-all"
+                disabled={isBusy}
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
               >
-                {isProcessing ? 'Menyimpan...' : 'Simpan Profil & Branding'}
+                {isBusy ? 'Menyimpan...' : 'Simpan Profil & Branding'}
               </button>
 
               {savedSuccess && (
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 animate-fade-in">
-                  <Check className="w-4 h-4" /> Branding berhasil disimpan!
+                  <Check className="w-4 h-4" /> Profil & Logo berhasil disimpan!
                 </span>
               )}
             </div>
@@ -221,13 +457,21 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-3">
                 <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shadow-md shrink-0 overflow-hidden"
-                  style={{ backgroundColor: brandColor }}
+                  className="w-12 h-12 rounded-xl flex items-center justify-center shadow-xs shrink-0 overflow-hidden border border-slate-200/80 bg-white"
                 >
-                  {logoUrl ? (
-                    <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" />
+                  {previewUrl ? (
+                    <img
+                      src={previewUrl}
+                      alt="Logo Studio"
+                      className="w-full h-full object-contain p-1"
+                    />
                   ) : (
-                    <Camera className="w-5 h-5" />
+                    <div
+                      className="w-full h-full flex items-center justify-center text-white font-bold"
+                      style={{ backgroundColor: brandColor }}
+                    >
+                      <Camera className="w-5 h-5" />
+                    </div>
                   )}
                 </div>
                 <div>

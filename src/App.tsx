@@ -60,22 +60,6 @@ export default function App() {
     error: authError,
   } = useAuth();
 
-  // Dynamic Global Typography Hook for Studio Dashboard
-  useEffect(() => {
-    if (!publicGalleryId) {
-      if (profile?.typography) {
-        applyTypography(profile.typography);
-      } else if (profile?.fontFamily || profile?.fontSize) {
-        applyTypography({
-          fontFamily: profile.fontFamily || 'Inter',
-          fontSize: profile.fontSize || 'm',
-        });
-      } else {
-        applyTypography({ fontFamily: 'Inter', fontSize: 'm' });
-      }
-    }
-  }, [profile?.typography, profile?.fontFamily, profile?.fontSize, publicGalleryId]);
-
   // Studio Data Hook
   const {
     profile,
@@ -94,6 +78,22 @@ export default function App() {
     clearTrash,
     updateProfile,
   } = useStudioData(user, accessToken);
+
+  // Dynamic Global Typography Hook for Studio Dashboard (placed safely after profile definition)
+  useEffect(() => {
+    if (!publicGalleryId) {
+      if (profile?.typography) {
+        applyTypography(profile.typography);
+      } else if (profile?.fontFamily || profile?.fontSize) {
+        applyTypography({
+          fontFamily: profile.fontFamily || 'Inter',
+          fontSize: profile.fontSize || 'm',
+        });
+      } else {
+        applyTypography({ fontFamily: 'Inter', fontSize: 'm' });
+      }
+    }
+  }, [profile?.typography, profile?.fontFamily, profile?.fontSize, publicGalleryId]);
 
   // Admin Navigation State
   const [currentTab, setCurrentTab] = useState<string>('dashboard');

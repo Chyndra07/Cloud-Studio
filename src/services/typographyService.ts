@@ -167,18 +167,22 @@ export function applyTypography(settings?: Partial<StudioTypography> | null): St
   const fontStack = getFontStack(activeFamily);
   const px = getFontSizePx(activeSize);
 
-  const root = document.documentElement;
-  const body = document.body;
+  try {
+    const root = document.documentElement;
+    const body = document.body;
 
-  // Apply CSS Variables
-  root.style.setProperty('--app-font-family', fontStack);
-  root.style.setProperty('--app-font-size-base', `${px}px`);
-  root.style.setProperty('font-size', `${px}px`);
-  root.setAttribute('data-font', activeFamily);
-  root.setAttribute('data-font-size', activeSize);
+    // Apply CSS Variables and Base Font Size
+    root.style.setProperty('--app-font-family', fontStack);
+    root.style.setProperty('--app-font-size-base', `${px}px`);
+    root.style.fontSize = `${px}px`;
+    root.setAttribute('data-font', activeFamily);
+    root.setAttribute('data-font-size', activeSize);
 
-  if (body) {
-    body.style.fontFamily = fontStack;
+    if (body) {
+      body.style.fontFamily = fontStack;
+    }
+  } catch (domErr) {
+    console.warn('[TYPOGRAPHY] DOM apply notice:', domErr);
   }
 
   const result: StudioTypography = {

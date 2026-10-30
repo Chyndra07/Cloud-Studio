@@ -5,6 +5,7 @@ const DRIVE_API_V3 = 'https://www.googleapis.com/drive/v3';
 
 export const ALLOWED_LOGO_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 export const MAX_LOGO_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+export const MAX_BANNER_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 /**
  * Validates logo file format and size (max 5MB, PNG/JPG/WebP)
@@ -39,11 +40,41 @@ export function validateLogoFile(file: File): { valid: boolean; error?: string }
 }
 
 /**
- * Converts image file to high-quality Data URL with 100% alpha transparency preserved.
- * If file size <= 400KB, converts directly as byte-for-byte Data URL.
- * If file size > 400KB, scales down to max 800px on offscreen canvas maintaining transparency so it fits easily within Firestore.
+ * Validates banner file format and size (max 10MB, PNG/JPG/WebP)
  */
-export async function fileToOptimizedDataUrl(file: File): Promise<string> {
+export function validateBannerFile(file: File): { valid: boolean; error?: string } {
+  if (!file) {
+    return { valid: false, error: 'File banner tidak ditemukan.' };
+  }
+
+  if (file.size > MAX_BANNER_FILE_SIZE) {
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+    return {
+      valid: false,
+      error: `Ukuran file banner terlalu besar (${sizeMb} MB). Maksimal ukuran file adalah 10 MB.`,
+    };
+  }
+
+  const type = file.type ? file.type.toLowerCase() : '';
+  const ext = file.name ? file.name.split('.').pop()?.toLowerCase() : '';
+
+  const isAllowedMime = ALLOWED_LOGO_TYPES.includes(type);
+  const isAllowedExt = ['png', 'jpg', 'jpeg', 'webp'].includes(ext || '');
+
+  if (!isAllowedMime && !isAllowedExt) {
+    return {
+      valid: false,
+      error: 'Format banner tidak didukung. Harap gunakan gambar PNG, JPG, JPEG, atau WEBP.',
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Converts image file to high-quality Data URL with 100% alpha transparency preserved.
+ */
+export async function fileToOptimizedDataUrl(file: File, maxDim = 800): Promise<string> {
   // If file is already small (under 400KB), preserve byte-for-byte
   if (file.size <= 400 * 1024) {
     return new Promise((resolve, reject) => {
@@ -59,17 +90,16 @@ export async function fileToOptimizedDataUrl(file: File): Promise<string> {
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        const MAX_DIM = 800;
         let width = img.width;
         let height = img.height;
 
-        if (width > MAX_DIM || height > MAX_DIM) {
+        if (width > maxDim || height > maxDim) {
           if (width > height) {
-            height = Math.round((height * MAX_DIM) / width);
-            width = MAX_DIM;
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
           } else {
-            width = Math.round((width * MAX_DIM) / height);
-            height = MAX_DIM;
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
           }
         }
 
@@ -82,7 +112,6 @@ export async function fileToOptimizedDataUrl(file: File): Promise<string> {
           return;
         }
 
-        // Clear transparent canvas for PNG
         ctx.clearRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
 
@@ -90,7 +119,7 @@ export async function fileToOptimizedDataUrl(file: File): Promise<string> {
         const dataUrl = canvas.toDataURL(mime, 0.95);
         resolve(dataUrl);
       };
-      img.onerror = () => reject(new Error('Gagal memproses gambar logo.'));
+      img.onerror = () => reject(new Error('Gagal memproses gambar.'));
       img.src = e.target?.result as string;
     };
     reader.onerror = () => reject(new Error('Gagal membaca file gambar.'));
@@ -99,11 +128,12 @@ export async function fileToOptimizedDataUrl(file: File): Promise<string> {
 }
 
 /**
- * Uploads logo to 'GaleriFotoQR Cloud Studio/Branding' in user's Google Drive
+ * Uploads branding asset (logo or banner) to 'GaleriFotoQR Cloud Studio/Branding' in user's Google Drive
  */
-export async function uploadLogoToGoogleDrive(
+export async function uploadBrandingAssetToDrive(
   accessToken: string,
-  file: File
+  file: File,
+  prefix: 'logo' | 'banner' = 'logo'
 ): Promise<string> {
   const { rootFolderId } = await ensureAppFolders(accessToken);
 
@@ -143,28 +173,32 @@ export async function uploadLogoToGoogleDrive(
       }
     }
   } catch (err) {
-    console.warn('[LOGO_UPLOAD] Error searching/creating Branding folder, using root:', err);
+    console.warn(`[BRANDING_UPLOAD] Error searching/creating Branding folder, using root:`, err);
   }
 
-  // Upload original logo file with public permissions
+  // Upload original file with public permissions
   const uploaded = await uploadOriginalPhoto(accessToken, brandingFolderId, file);
   return (
     uploaded.thumbnailUrl ||
     uploaded.webViewLink ||
-    `https://lh3.googleusercontent.com/u/0/d/${uploaded.driveFileId}=w1000`
+    `https://lh3.googleusercontent.com/u/0/d/${uploaded.driveFileId}=w1600`
   );
+}
+
+export async function uploadLogoToGoogleDrive(accessToken: string, file: File): Promise<string> {
+  return uploadBrandingAssetToDrive(accessToken, file, 'logo');
+}
+
+export async function uploadBannerToGoogleDrive(accessToken: string, file: File): Promise<string> {
+  return uploadBrandingAssetToDrive(accessToken, file, 'banner');
 }
 
 /**
  * Universal logo processor:
  * 1. Checks if Google Drive is connected for current user -> uploads to Google Drive.
  * 2. If Google Drive is not connected or upload fails -> converts to high-quality Data URL with full PNG transparency.
- * Always guarantees a valid, viewable logoUrl.
  */
-export async function processStudioLogo(
-  userId: string,
-  file: File
-): Promise<string> {
+export async function processStudioLogo(userId: string, file: File): Promise<string> {
   const token = getStoredUserToken(userId);
   if (token) {
     try {
@@ -180,5 +214,29 @@ export async function processStudioLogo(
   }
 
   console.log('[LOGO_STORAGE] Processing logo as high-quality Data URL...');
-  return await fileToOptimizedDataUrl(file);
+  return await fileToOptimizedDataUrl(file, 800);
+}
+
+/**
+ * Universal banner processor:
+ * 1. Checks if Google Drive is connected for current user -> uploads to Google Drive.
+ * 2. If Google Drive is not connected or upload fails -> converts to high-resolution landscape Data URL.
+ */
+export async function processStudioBanner(userId: string, file: File): Promise<string> {
+  const token = getStoredUserToken(userId);
+  if (token) {
+    try {
+      console.log('[BANNER_STORAGE] Attempting banner upload to user Google Drive...');
+      const driveUrl = await uploadBannerToGoogleDrive(token, file);
+      if (driveUrl) {
+        console.log('[BANNER_STORAGE] Successfully uploaded banner to Drive:', driveUrl);
+        return driveUrl;
+      }
+    } catch (err) {
+      console.warn('[BANNER_STORAGE] Drive banner upload failed, falling back to Data URL:', err);
+    }
+  }
+
+  console.log('[BANNER_STORAGE] Processing banner as high-resolution Data URL...');
+  return await fileToOptimizedDataUrl(file, 1600);
 }

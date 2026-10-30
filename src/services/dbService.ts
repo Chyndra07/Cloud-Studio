@@ -411,10 +411,12 @@ export async function syncPublicGalleryFromAlbum(album: Album): Promise<void> {
     status: album.status || 'active',
     photoCount: album.photoCount || (album.photos?.length ?? 0),
     coverPhotoUrl: album.coverPhotoUrl || (album.photos?.[0]?.thumbnailUrl || ''),
+    bannerUrl: album.bannerUrl || profile?.bannerUrl || '',
     photos: album.photos || [],
     studio: {
       studioName: profile?.studioName || 'Studio Foto Kami',
       logoUrl: profile?.logoUrl || '',
+      bannerUrl: profile?.bannerUrl || album.bannerUrl || '',
       whatsappNumber: profile?.whatsappNumber || '',
       emailContact: profile?.emailContact || '',
       brandColor: profile?.brandColor || '#2563eb',

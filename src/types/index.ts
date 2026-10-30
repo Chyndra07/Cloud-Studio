@@ -5,6 +5,7 @@ export interface StudioProfile {
   ownerName: string;
   photoURL?: string;
   logoUrl?: string;
+  bannerUrl?: string; // Custom Studio Hero Banner URL
   whatsappNumber?: string;
   emailContact?: string;
   address?: string;
@@ -52,6 +53,7 @@ export interface Album {
   isPublished: boolean;
   photoCount: number;
   coverPhotoUrl?: string;
+  bannerUrl?: string; // Optional per-album custom banner override
   photos?: PhotoItem[];
   createdAt: string;
   updatedAt: string;
@@ -70,10 +72,12 @@ export interface PublicGalleryData {
   status: 'active' | 'expired' | 'disabled';
   photoCount: number;
   coverPhotoUrl?: string;
+  bannerUrl?: string;
   photos: PhotoItem[];
   studio: {
     studioName: string;
     logoUrl?: string;
+    bannerUrl?: string;
     whatsappNumber?: string;
     emailContact?: string;
     brandColor?: string;
@@ -91,18 +95,18 @@ export interface ClientSelection {
 }
 
 export interface TrashItem {
-  albumId: string;
-  galleryId: string;
-  albumName: string;
-  clientName: string;
-  photoCount: number;
-  driveFolderId: string;
+  id: string;
+  type: 'album';
+  name: string;
   deletedAt: string;
-  originalAlbumData: Album;
+  originalData: any;
 }
 
-export interface AppConfig {
-  frontendPublicUrl: string;
-  apiBaseUrl: string;
-  driveRootFolderName: string;
+export interface DriveQuotaInfo {
+  limit: number;
+  usage: number;
+  usageInDrive: number;
+  usageInDriveTrash: number;
+  userEmail: string;
+  userName: string;
 }

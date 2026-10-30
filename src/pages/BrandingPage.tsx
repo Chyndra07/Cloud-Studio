@@ -13,12 +13,17 @@ import {
   Trash2,
   RefreshCw,
   AlertCircle,
+  Layout,
+  RotateCcw,
 } from 'lucide-react';
 import { StudioProfile } from '../types';
 import {
   validateLogoFile,
   processStudioLogo,
+  validateBannerFile,
+  processStudioBanner,
 } from '../services/logoStorageService';
+import { ModernStudioBanner } from '../components/banner/ModernStudioBanner';
 
 interface BrandingPageProps {
   profile: StudioProfile | null;
@@ -56,10 +61,20 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isSavingLogo, setIsSavingLogo] = useState(false);
+
+  // Banner management states
+  const [bannerUrl, setBannerUrl] = useState(profile?.bannerUrl || '');
+  const [selectedBannerFile, setSelectedBannerFile] = useState<File | null>(null);
+  const [bannerPreviewUrl, setBannerPreviewUrl] = useState<string | null>(profile?.bannerUrl || null);
+  const [isDraggingBanner, setIsDraggingBanner] = useState(false);
+  const [bannerError, setBannerError] = useState<string | null>(null);
+  const [showResetBannerConfirm, setShowResetBannerConfirm] = useState(false);
+
+  const [isSavingAll, setIsSavingAll] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bannerFileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync state if profile prop changes from server
   useEffect(() => {
@@ -70,18 +85,24 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
       setAddress(profile.address || '');
       setWebsite(profile.website || '');
       setBrandColor(profile.brandColor || '#2563eb');
+
       if (!selectedFile) {
         setLogoUrl(profile.logoUrl || '');
         setPreviewUrl(profile.logoUrl || null);
       }
+      if (!selectedBannerFile) {
+        setBannerUrl(profile.bannerUrl || '');
+        setBannerPreviewUrl(profile.bannerUrl || null);
+      }
     }
   }, [profile]);
 
+  // Handle Logo Selection
   const handleFileSelect = (file: File) => {
     setUploadError(null);
     const validation = validateLogoFile(file);
     if (!validation.valid) {
-      setUploadError(validation.error || 'File tidak valid.');
+      setUploadError(validation.error || 'File logo tidak valid.');
       return;
     }
 
@@ -120,15 +141,62 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
     setUploadError(null);
   };
 
+  // Handle Banner Selection
+  const handleBannerSelect = (file: File) => {
+    setBannerError(null);
+    const validation = validateBannerFile(file);
+    if (!validation.valid) {
+      setBannerError(validation.error || 'File banner tidak valid.');
+      return;
+    }
+
+    setSelectedBannerFile(file);
+    const objectUrl = URL.createObjectURL(file);
+    setBannerPreviewUrl(objectUrl);
+  };
+
+  const handleBannerDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingBanner(true);
+  };
+
+  const handleBannerDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingBanner(false);
+  };
+
+  const handleBannerDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingBanner(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleBannerSelect(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleResetBannerToDefault = () => {
+    setSelectedBannerFile(null);
+    setBannerPreviewUrl(null);
+    setBannerUrl('');
+    setShowResetBannerConfirm(false);
+    setBannerError(null);
+  };
+
+  // Form Submit Handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSavingLogo(true);
+    setIsSavingAll(true);
     setUploadError(null);
+    setBannerError(null);
 
     try {
       let finalLogoUrl = logoUrl;
+      let finalBannerUrl = bannerUrl;
 
-      // If a new logo file was selected, process and store it
+      // 1. Process Logo if newly selected
       if (selectedFile && profile?.uid) {
         finalLogoUrl = await processStudioLogo(profile.uid, selectedFile);
         setLogoUrl(finalLogoUrl);
@@ -136,9 +204,18 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
         setSelectedFile(null);
       }
 
+      // 2. Process Banner if newly selected
+      if (selectedBannerFile && profile?.uid) {
+        finalBannerUrl = await processStudioBanner(profile.uid, selectedBannerFile);
+        setBannerUrl(finalBannerUrl);
+        setBannerPreviewUrl(finalBannerUrl);
+        setSelectedBannerFile(null);
+      }
+
       await onSaveProfile({
         studioName: studioName.trim(),
         logoUrl: finalLogoUrl.trim(),
+        bannerUrl: finalBannerUrl.trim(),
         whatsappNumber: whatsappNumber.trim(),
         emailContact: emailContact.trim(),
         address: address.trim(),
@@ -150,13 +227,13 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
       setTimeout(() => setSavedSuccess(false), 3000);
     } catch (err: any) {
       console.error('[BRANDING] Save profile error:', err);
-      setUploadError(err?.message || 'Gagal menyimpan profil & logo studio.');
+      setUploadError(err?.message || 'Gagal menyimpan profil & branding studio.');
     } finally {
-      setIsSavingLogo(false);
+      setIsSavingAll(false);
     }
   };
 
-  const isBusy = isProcessing || isSavingLogo;
+  const isBusy = isProcessing || isSavingAll;
 
   return (
     <div className="space-y-6 pb-16">
@@ -164,14 +241,14 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
       <div>
         <h2 className="text-xl font-bold text-slate-900 tracking-tight">Profil & Branding Studio</h2>
         <p className="text-xs text-slate-500">
-          Kustomisasi identitas studio foto Anda untuk QR Code dan portal galeri pelanggan.
+          Kustomisasi identitas studio foto, logo, banner galeri, dan tema portal pelanggan Anda.
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Form Settings */}
         <div className="lg:col-span-7 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-6">
             {/* Nama Studio */}
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -187,14 +264,16 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
               />
             </div>
 
-            {/* LOGO STUDIO COMPONENT */}
-            <div className="space-y-2">
+            {/* ========================================================= */}
+            {/* 1. LOGO STUDIO COMPONENT                                  */}
+            {/* ========================================================= */}
+            <div className="space-y-2 pt-2 border-t border-slate-100">
               <div className="flex items-center justify-between">
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                   <ImageIcon className="w-3.5 h-3.5 text-blue-600" /> Logo Studio
                 </label>
                 <span className="text-[11px] text-slate-400 font-medium">
-                  PNG, JPG, atau WEBP • Maks. 5 MB
+                  PNG (Transparan), JPG, atau WEBP • Maks. 5 MB
                 </span>
               </div>
 
@@ -220,7 +299,7 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
                 </div>
               )}
 
-              {/* If Logo Available (Preview State) */}
+              {/* Logo Preview & Actions */}
               {previewUrl ? (
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="flex items-center gap-4 w-full sm:w-auto">
@@ -289,7 +368,7 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
                     Klik untuk memilih logo atau seret file ke sini
                   </p>
                   <p className="text-[11px] text-slate-400 max-w-sm">
-                    Gunakan file gambar berlatar belakang transparan (PNG direkomendasikan) agar logo tampil elegan pada QR Card dan portal pelanggan.
+                    Gunakan file gambar berlatar transparan (PNG direkomendasikan) agar logo tampil elegan pada QR Card dan portal pelanggan.
                   </p>
                   <button
                     type="button"
@@ -309,7 +388,7 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
                 <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between gap-3 animate-fade-in">
                   <div className="flex items-center gap-2 text-rose-800 text-xs">
                     <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>Hapus logo studio ini? Klik "Simpan Profil" setelahnya untuk memperbarui.</span>
+                    <span>Hapus logo studio ini? Klik "Simpan" setelahnya untuk memperbarui profil.</span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
@@ -331,8 +410,155 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
               )}
             </div>
 
+            {/* ========================================================= */}
+            {/* 2. BANNER GALERI STUDIO COMPONENT                         */}
+            {/* ========================================================= */}
+            <div className="space-y-3 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Layout className="w-3.5 h-3.5 text-blue-600" /> Banner Galeri Studio
+                  </label>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Banner landscape resmi untuk seluruh portal album foto pelanggan Anda.
+                  </p>
+                </div>
+                <span className="text-[11px] text-slate-400 font-medium">
+                  Rasio 16:5 / 3:1 • Maks. 10 MB
+                </span>
+              </div>
+
+              {/* Hidden Banner File Input */}
+              <input
+                ref={bannerFileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    handleBannerSelect(e.target.files[0]);
+                  }
+                  e.target.value = '';
+                }}
+              />
+
+              {/* Banner Error Notice */}
+              {bannerError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span>{bannerError}</span>
+                </div>
+              )}
+
+              {/* Interactive Banner Status & Actions Card */}
+              <div className="space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                        bannerPreviewUrl
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-emerald-600 text-white'
+                      }`}
+                    >
+                      {bannerPreviewUrl ? 'Banner Custom Aktif' : 'Banner Default Resmi'}
+                    </span>
+                    <span className="text-xs font-semibold text-slate-700">
+                      {bannerPreviewUrl
+                        ? selectedBannerFile
+                          ? `File baru: ${selectedBannerFile.name}`
+                          : 'Kustom studio foto Anda'
+                        : 'Modern Premium Photography Studio'}
+                    </span>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => bannerFileInputRef.current?.click()}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>{bannerPreviewUrl ? 'Ganti Banner' : 'Upload Banner'}</span>
+                    </button>
+
+                    {bannerPreviewUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setShowResetBannerConfirm(true)}
+                        className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                        title="Kembalikan ke Banner Default"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Reset ke Default</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Banner Live Visual Preview */}
+                <div className="rounded-xl overflow-hidden shadow-xs">
+                  <ModernStudioBanner
+                    albumName="Dimas & Anisa Wedding"
+                    clientName="Dimas"
+                    eventDate="30 Oktober 2026"
+                    photoCount={85}
+                    daysRemaining={30}
+                    customBannerUrl={bannerPreviewUrl}
+                    studioName={studioName}
+                    brandColor={brandColor}
+                    compact={true}
+                  />
+                </div>
+
+                {/* Drag-Drop Target Area if user wants to drop a new banner */}
+                <div
+                  onDragOver={handleBannerDragOver}
+                  onDragLeave={handleBannerDragLeave}
+                  onDrop={handleBannerDrop}
+                  onClick={() => bannerFileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-all ${
+                    isDraggingBanner
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-slate-200 hover:border-blue-400 bg-white hover:bg-blue-50/20'
+                  }`}
+                >
+                  <p className="text-[11px] text-slate-600 font-medium">
+                    Seret berkas gambar ke sini untuk mengganti banner secara instan, atau klik untuk memilih berkas.
+                  </p>
+                </div>
+              </div>
+
+              {/* Reset Banner Confirmation Dialog */}
+              {showResetBannerConfirm && (
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between gap-3 animate-fade-in">
+                  <div className="flex items-center gap-2 text-rose-800 text-xs">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>Kembalikan seluruh album ke Banner Default resmi? Klik "Simpan" setelahnya.</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleResetBannerToDefault}
+                      className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+                    >
+                      Ya, Reset
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowResetBannerConfirm(false)}
+                      className="px-3 py-1 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Nomor WhatsApp & Email */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                   <Phone className="w-3.5 h-3.5 text-emerald-600" /> WhatsApp Studio
@@ -433,12 +659,12 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
                 disabled={isBusy}
                 className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
               >
-                {isBusy ? 'Menyimpan...' : 'Simpan Profil & Branding'}
+                {isBusy ? 'Menyimpan Perubahan...' : 'Simpan Profil & Branding'}
               </button>
 
               {savedSuccess && (
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 animate-fade-in">
-                  <Check className="w-4 h-4" /> Profil & Logo berhasil disimpan!
+                  <Check className="w-4 h-4" /> Profil, Logo & Banner berhasil disimpan!
                 </span>
               )}
             </div>
@@ -487,23 +713,27 @@ export const BrandingPage: React.FC<BrandingPageProps> = ({
               )}
             </div>
 
-            {/* Sample Album Mock Banner */}
-            <div
-              className="p-5 rounded-2xl text-white space-y-2 relative overflow-hidden"
-              style={{ backgroundColor: brandColor }}
-            >
-              <span className="text-[10px] uppercase font-bold tracking-wider opacity-80">
-                Wedding Dokumentasi
-              </span>
-              <h5 className="text-base font-black">Dimas & Anisa Wedding</h5>
-              <div className="flex items-center gap-3 text-[11px] opacity-90">
-                <span>📍 Pelanggan: Dimas</span>
-                <span>📸 85 Foto Asli</span>
+            {/* REALISTIC BANNER PREVIEW MOCK */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold px-1">
+                <span>Pratinjau Banner Galeri Pelanggan:</span>
+                <span className="text-[10px] font-mono text-blue-600">Rasio 16:5</span>
               </div>
+              <ModernStudioBanner
+                albumName="Dimas & Anisa Wedding"
+                clientName="Dimas"
+                eventDate="30 Oktober 2026"
+                photoCount={85}
+                daysRemaining={30}
+                customBannerUrl={bannerPreviewUrl}
+                studioName={studioName}
+                brandColor={brandColor}
+                compact={true}
+              />
             </div>
 
-            <p className="text-[11px] text-slate-500 text-center">
-              Warna brand dan logo ini akan diterapkan otomatis pada QR Code Cetak dan Portal Galeri Pelanggan.
+            <p className="text-[11px] text-slate-500 text-center leading-relaxed">
+              Banner dan logo ini akan diterapkan secara global pada seluruh album foto pelanggan, QR Code Cetak, dan Portal Galeri Pelanggan.
             </p>
           </div>
         </div>

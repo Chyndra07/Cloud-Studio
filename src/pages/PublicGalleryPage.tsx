@@ -22,6 +22,7 @@ import {
 import { PublicGalleryData, PhotoItem, ClientSelection } from '../types';
 import { getPublicGalleryData, getClientSelection, saveClientSelection } from '../services/dbService';
 import { downloadSinglePhoto, downloadPhotosAsZip } from '../services/downloadService';
+import { ModernStudioBanner } from '../components/banner/ModernStudioBanner';
 
 interface PublicGalleryPageProps {
   galleryId: string;
@@ -425,34 +426,16 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
 
       {/* Main Hero Album Banner */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 space-y-6">
-        <div
-          className="rounded-3xl p-6 sm:p-10 text-white shadow-xl relative overflow-hidden"
-          style={{ backgroundColor: brandColor }}
-        >
-          {/* Subtle decoration */}
-          <div className="absolute right-0 top-0 w-96 h-96 bg-white/5 rounded-full blur-3xl pointer-events-none" />
-
-          <div className="relative z-10 space-y-3 max-w-2xl">
-            <span className="inline-flex items-center gap-1 px-3 py-1 bg-black/20 backdrop-blur-md rounded-full text-xs font-bold tracking-wide uppercase">
-              <Sparkles className="w-3.5 h-3.5" /> Galeri Foto Digital
-            </span>
-
-            <h2 className="text-2xl sm:text-4xl font-black tracking-tight">{gallery.albumName}</h2>
-
-            <div className="flex flex-wrap items-center gap-4 text-xs sm:text-sm font-medium opacity-90">
-              <span>👤 Pelanggan: <strong>{gallery.clientName}</strong></span>
-              {gallery.eventDate && <span>📅 Acara: <strong>{gallery.eventDate}</strong></span>}
-              <span>📸 <strong>{gallery.photos.length} Foto Asli</strong></span>
-              <span className="bg-white/20 px-2.5 py-0.5 rounded-full text-xs">
-                ⏳ Sisa Waktu: {daysRemaining} Hari
-              </span>
-            </div>
-
-            <p className="text-xs sm:text-sm opacity-80 pt-2 leading-relaxed">
-              Klik tanda ❤️ pada foto untuk memilih foto favorit Anda, berikan catatan jika perlu (misal: "Edit jerawat", "Cetak 4R"), dan unduh foto beresolusi tinggi langsung ke perangkat Anda.
-            </p>
-          </div>
-        </div>
+        <ModernStudioBanner
+          albumName={gallery.albumName}
+          clientName={gallery.clientName}
+          eventDate={gallery.eventDate}
+          photoCount={gallery.photos.length}
+          daysRemaining={daysRemaining}
+          customBannerUrl={gallery.bannerUrl || gallery.studio?.bannerUrl}
+          studioName={gallery.studio?.studioName}
+          brandColor={brandColor}
+        />
 
         {/* ZIP Progress Alert */}
         {zipProgress.active && (

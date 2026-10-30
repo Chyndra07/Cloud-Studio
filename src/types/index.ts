@@ -89,6 +89,7 @@ export interface PublicGalleryData {
   clientName: string;
   eventName: string;
   eventDate?: string;
+  driveFolderId?: string;
   pin: string;
   isPinRequired: boolean;
   expirationDate: string;

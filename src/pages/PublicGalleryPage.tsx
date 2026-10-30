@@ -446,17 +446,92 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
 
   // Collections & Folder Structuring
   const allPhotos = gallery.photos || [];
-  const allFolders = gallery.folders || [];
+  const rootDriveFolderId = gallery.driveFolderId || '';
+
+  // Recover folders if folders array was empty but photos have folder paths
+  let baseFolders: AlbumFolder[] = gallery.folders && gallery.folders.length > 0 ? gallery.folders : [];
+  if (baseFolders.length === 0 && allPhotos.length > 0) {
+    const map = new Map<string, AlbumFolder>();
+    allPhotos.forEach((p) => {
+      if (p.folderName && p.folderName.trim()) {
+        const topFolder = p.folderName.split('/')[0].trim();
+        const fId = p.folderId || `folder_${topFolder.replace(/\s+/g, '_')}`;
+        if (!map.has(fId)) {
+          map.set(fId, {
+            id: fId,
+            name: topFolder,
+            path: topFolder,
+            parentId: rootDriveFolderId || undefined,
+            createdAt: gallery.createdAt,
+          });
+        }
+      }
+    });
+    if (map.size > 0) {
+      baseFolders = Array.from(map.values());
+    }
+  }
+
+  // Ensure every folder has dynamic photoCount matching allPhotos
+  const allFolders: AlbumFolder[] = baseFolders.map((f) => {
+    const count = allPhotos.filter(
+      (p) =>
+        p.folderId === f.id ||
+        (p.folderName &&
+          (p.folderName === f.name ||
+            p.folderName === f.path ||
+            p.folderName.startsWith(f.name + '/') ||
+            p.folderName.startsWith(f.name)))
+    ).length;
+    return { ...f, photoCount: count };
+  });
+
   const selectedPhotosList = allPhotos.filter((p) => selectedPhotoIds.includes(p.driveFileId));
 
   // Current folder level computation for "folders" tab
   const currentFolderObj = currentFolderId ? allFolders.find((f) => f.id === currentFolderId) : null;
-  const currentLevelFolders = allFolders.filter((f) =>
-    currentFolderId ? f.parentId === currentFolderId : !f.parentId
-  );
-  const currentLevelPhotos = allPhotos.filter((p) =>
-    currentFolderId ? p.folderId === currentFolderId : !p.folderId
-  );
+
+  // Subfolders at current level:
+  // - If inside a subfolder: parentId must equal currentFolderId
+  // - If at root: parentId is rootDriveFolderId, or falsy, OR parentId does not match any other folder's id in allFolders
+  const currentLevelFolders = allFolders.filter((f) => {
+    if (currentFolderId) {
+      return f.parentId === currentFolderId;
+    }
+    // At root level
+    return (
+      !f.parentId ||
+      (rootDriveFolderId && f.parentId === rootDriveFolderId) ||
+      !allFolders.some((other) => other.id === f.parentId)
+    );
+  });
+
+  // Photos at current level:
+  // - If inside a subfolder: photo belongs to this folder
+  // - If at root: photo is in root (not in any subfolder)
+  const currentLevelPhotos = allPhotos.filter((p) => {
+    if (currentFolderId) {
+      return (
+        p.folderId === currentFolderId ||
+        (p.folderName &&
+          (p.folderName === currentFolderObj?.name ||
+            p.folderName === currentFolderObj?.path ||
+            p.folderName.startsWith(currentFolderObj?.name + '/') ||
+            p.folderName.startsWith(currentFolderObj?.name)))
+      );
+    }
+    // At root level: only photos not in any subfolder
+    const isInsideSubfolder = allFolders.some(
+      (f) =>
+        p.folderId === f.id ||
+        (p.folderName &&
+          (p.folderName === f.name ||
+            p.folderName === f.path ||
+            p.folderName.startsWith(f.name + '/') ||
+            p.folderName.startsWith(f.name)))
+    );
+    return !isInsideSubfolder;
+  });
 
   // Photo Search Filters
   const filteredAllPhotos = allPhotos.filter((p) =>

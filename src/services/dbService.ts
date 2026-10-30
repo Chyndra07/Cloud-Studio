@@ -390,6 +390,53 @@ async function syncToBackendApi(publicData: PublicGalleryData): Promise<void> {
   );
 }
 
+/**
+ * Ensures public gallery data has folders and dynamic photo counts matching photos
+ */
+function ensureFolderConsistency(data: PublicGalleryData): PublicGalleryData {
+  if (!data.photos) data.photos = [];
+  let baseFolders = data.folders && data.folders.length > 0 ? data.folders : [];
+
+  // If folders array is missing or empty, but photos contain folder references, reconstruct folders
+  if (baseFolders.length === 0 && data.photos.length > 0) {
+    const map = new Map<string, AlbumFolder>();
+    data.photos.forEach((p) => {
+      if (p.folderName && p.folderName.trim()) {
+        const topFolder = p.folderName.split('/')[0].trim();
+        const fId = p.folderId || `folder_${topFolder.replace(/\s+/g, '_')}`;
+        if (!map.has(fId)) {
+          map.set(fId, {
+            id: fId,
+            name: topFolder,
+            path: topFolder,
+            parentId: data.driveFolderId || undefined,
+            createdAt: data.createdAt,
+          });
+        }
+      }
+    });
+    if (map.size > 0) {
+      baseFolders = Array.from(map.values());
+    }
+  }
+
+  // Always compute dynamic photoCount for each folder based on photos
+  data.folders = baseFolders.map((f) => {
+    const count = data.photos.filter(
+      (p) =>
+        p.folderId === f.id ||
+        (p.folderName &&
+          (p.folderName === f.name ||
+            p.folderName === f.path ||
+            p.folderName.startsWith(f.name + '/') ||
+            p.folderName.startsWith(f.name)))
+    ).length;
+    return { ...f, photoCount: count };
+  });
+
+  return data;
+}
+
 export async function syncPublicGalleryFromAlbum(album: Album): Promise<void> {
   const cleanGalleryId = (album.galleryId || '').toUpperCase().trim();
   if (!cleanGalleryId) {
@@ -398,8 +445,47 @@ export async function syncPublicGalleryFromAlbum(album: Album): Promise<void> {
 
   const profile = await getStudioProfile(album.ownerUid);
 
+  const albumPhotos = album.photos || [];
+  let albumFolders = album.folders && album.folders.length > 0 ? album.folders : [];
+
+  if (albumFolders.length === 0 && albumPhotos.length > 0) {
+    const map = new Map<string, AlbumFolder>();
+    albumPhotos.forEach((p) => {
+      if (p.folderName && p.folderName.trim()) {
+        const topFolder = p.folderName.split('/')[0].trim();
+        const fId = p.folderId || `folder_${topFolder.replace(/\s+/g, '_')}`;
+        if (!map.has(fId)) {
+          map.set(fId, {
+            id: fId,
+            name: topFolder,
+            path: topFolder,
+            parentId: album.driveFolderId || undefined,
+            createdAt: album.createdAt,
+          });
+        }
+      }
+    });
+    if (map.size > 0) {
+      albumFolders = Array.from(map.values());
+    }
+  }
+
+  const resolvedFolders = albumFolders.map((f) => {
+    const count = albumPhotos.filter(
+      (p) =>
+        p.folderId === f.id ||
+        (p.folderName &&
+          (p.folderName === f.name ||
+            p.folderName === f.path ||
+            p.folderName.startsWith(f.name + '/') ||
+            p.folderName.startsWith(f.name)))
+    ).length;
+    return { ...f, photoCount: count };
+  });
+
   const publicData: PublicGalleryData = {
     galleryId: cleanGalleryId,
+    driveFolderId: album.driveFolderId || '',
     albumName: album.albumName || 'Album Foto',
     clientName: album.clientName || 'Pelanggan',
     eventName: album.eventName || album.albumName || 'Dokumentasi',
@@ -409,11 +495,11 @@ export async function syncPublicGalleryFromAlbum(album: Album): Promise<void> {
     expirationDate: album.expirationDate || new Date(Date.now() + 30 * 86400000).toISOString(),
     isExpired: album.expirationDate ? new Date(album.expirationDate) < new Date() : false,
     status: album.status || 'active',
-    photoCount: album.photoCount || (album.photos?.length ?? 0),
-    coverPhotoUrl: album.coverPhotoUrl || (album.photos?.[0]?.thumbnailUrl || ''),
+    photoCount: album.photoCount || albumPhotos.length,
+    coverPhotoUrl: album.coverPhotoUrl || (albumPhotos[0]?.thumbnailUrl || ''),
     bannerUrl: album.bannerUrl || profile?.bannerUrl || '',
-    photos: album.photos || [],
-    folders: album.folders || [],
+    photos: albumPhotos,
+    folders: resolvedFolders,
     studio: {
       studioName: profile?.studioName || 'Studio Foto Kami',
       logoUrl: profile?.logoUrl || '',
@@ -473,7 +559,7 @@ export async function getPublicGalleryData(galleryId: string): Promise<PublicGal
         }
         localStorage.setItem(`gfq_public_gallery_${cleanId}`, JSON.stringify(data));
         console.log('[PUBLIC_GALLERY] Loaded from Firestore successfully for ID:', cleanId);
-        return data;
+        return ensureFolderConsistency(data);
       }
     } else {
       console.warn(`[PUBLIC_GALLERY] Document public_galleries/${cleanId} does not exist in Firestore.`);
@@ -499,7 +585,7 @@ export async function getPublicGalleryData(galleryId: string): Promise<PublicGal
           data.galleryId = data.galleryId.toUpperCase().trim();
           localStorage.setItem(`gfq_public_gallery_${cleanId}`, JSON.stringify(data));
           console.log('[PUBLIC_GALLERY] Loaded from Backend API endpoint:', ep);
-          return data;
+          return ensureFolderConsistency(data);
         }
       }
     } catch {
@@ -522,7 +608,7 @@ export async function getPublicGalleryData(galleryId: string): Promise<PublicGal
         console.log('[PUBLIC_GALLERY] Loaded from Local Storage cache for ID:', cleanId);
         // Attempt background re-sync to Firestore if it wasn't there
         syncToBackendApi(data).catch(() => {});
-        return data;
+        return ensureFolderConsistency(data);
       }
     } catch {
       // ignore corrupted json
@@ -539,10 +625,10 @@ export async function getPublicGalleryData(galleryId: string): Promise<PublicGal
           const match = list.find((a) => (a.galleryId || '').toUpperCase().trim() === cleanId);
           if (match) {
             console.log('[PUBLIC_GALLERY] Reconstructed from local album store for ID:', cleanId);
-            syncPublicGalleryFromAlbum(match).catch((err) => console.warn('[PUBLIC_GALLERY] Sync attempt notice:', err));
+            await syncPublicGalleryFromAlbum(match).catch((err) => console.warn('[PUBLIC_GALLERY] Sync attempt notice:', err));
             const cached = localStorage.getItem(`gfq_public_gallery_${cleanId}`);
             if (cached) {
-              return JSON.parse(cached) as PublicGalleryData;
+              return ensureFolderConsistency(JSON.parse(cached) as PublicGalleryData);
             }
           }
         } catch {

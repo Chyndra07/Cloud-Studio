@@ -547,16 +547,60 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
     }
   };
 
-  // Filter photos and subfolders based on current folder in "folders" tab
-  const currentLevelFolders = folders.filter((f) =>
-    currentFolderId ? f.parentId === currentFolderId : !f.parentId || f.parentId === album.driveFolderId
-  );
+  // Ensure every folder has dynamic photoCount matching photos
+  const allFolders: AlbumFolder[] = folders.map((f) => {
+    const count = photos.filter(
+      (p) =>
+        p.folderId === f.id ||
+        (p.folderName &&
+          (p.folderName === f.name ||
+            p.folderName === f.path ||
+            p.folderName.startsWith(f.name + '/') ||
+            p.folderName.startsWith(f.name)))
+    ).length;
+    return { ...f, photoCount: count };
+  });
 
-  const currentLevelPhotos = photos.filter((p) =>
-    currentFolderId
-      ? p.folderId === currentFolderId
-      : !p.folderId || p.folderId === album.driveFolderId
-  );
+  // Active folder details for breadcrumb
+  const currentFolderObj = currentFolderId ? allFolders.find((f) => f.id === currentFolderId) : null;
+
+  // Filter subfolders based on current folder in "folders" tab
+  const currentLevelFolders = allFolders.filter((f) => {
+    if (currentFolderId) {
+      return f.parentId === currentFolderId;
+    }
+    // At root level
+    return (
+      !f.parentId ||
+      (album.driveFolderId && f.parentId === album.driveFolderId) ||
+      !allFolders.some((other) => other.id === f.parentId)
+    );
+  });
+
+  // Filter photos based on current folder in "folders" tab
+  const currentLevelPhotos = photos.filter((p) => {
+    if (currentFolderId) {
+      return (
+        p.folderId === currentFolderId ||
+        (p.folderName &&
+          (p.folderName === currentFolderObj?.name ||
+            p.folderName === currentFolderObj?.path ||
+            p.folderName.startsWith(currentFolderObj?.name + '/') ||
+            p.folderName.startsWith(currentFolderObj?.name)))
+      );
+    }
+    // At root level: only photos not in any subfolder
+    const isInsideSubfolder = allFolders.some(
+      (f) =>
+        p.folderId === f.id ||
+        (p.folderName &&
+          (p.folderName === f.name ||
+            p.folderName === f.path ||
+            p.folderName.startsWith(f.name + '/') ||
+            p.folderName.startsWith(f.name)))
+    );
+    return !isInsideSubfolder;
+  });
 
   // Photo Search Filters
   const filteredAllPhotos = photos.filter((p) =>
@@ -566,9 +610,6 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
   const filteredCurrentLevelPhotos = currentLevelPhotos.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
   );
-
-  // Active folder details for breadcrumb
-  const currentFolderObj = currentFolderId ? folders.find((f) => f.id === currentFolderId) : null;
 
   // Selected Photos in Client Selection
   const selectedPhotosList = photos.filter((p) =>
@@ -727,7 +768,7 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
           }`}
         >
           <Folder className="w-4 h-4 text-amber-500" />
-          Struktur Folder ({folders.length})
+          Struktur Folder ({allFolders.length})
         </button>
 
         <button
@@ -1649,7 +1690,7 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
         onClose={() => setMoveCopyModal((prev) => ({ ...prev, isOpen: false }))}
         mode={moveCopyModal.mode}
         itemsCount={moveCopyModal.targetPhotoIds.length}
-        folders={folders}
+        folders={allFolders}
         rootFolderId={album.driveFolderId}
         rootFolderName={album.albumName}
         currentFolderId={moveCopyModal.currentFolderId}

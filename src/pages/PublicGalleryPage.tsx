@@ -18,11 +18,13 @@ import {
   AlertCircle,
   RefreshCw,
   Sparkles,
+  Zap,
 } from 'lucide-react';
 import { PublicGalleryData, PhotoItem, ClientSelection } from '../types';
 import { getPublicGalleryData, getClientSelection, saveClientSelection } from '../services/dbService';
 import { downloadSinglePhoto, downloadPhotosAsZip } from '../services/downloadService';
 import { ModernStudioBanner } from '../components/banner/ModernStudioBanner';
+import { getGalleryPhotoPreviewUrl, getGalleryPhotoFallbackUrl } from '../services/photoService';
 
 interface PublicGalleryPageProps {
   galleryId: string;
@@ -47,6 +49,25 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
 
   // Lightbox Preview
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+
+  // Preview Quality State ('light' = Preview Ringan (default) | 'hd' = Preview HD)
+  const [previewQuality, setPreviewQuality] = useState<'light' | 'hd'>(() => {
+    try {
+      const saved = localStorage.getItem('gfq_gallery_preview_mode');
+      return saved === 'hd' ? 'hd' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
+
+  const handleQualityChange = (mode: 'light' | 'hd') => {
+    setPreviewQuality(mode);
+    try {
+      localStorage.setItem('gfq_gallery_preview_mode', mode);
+    } catch (e) {
+      console.warn('Failed to save preview quality preference', e);
+    }
+  };
 
   // ZIP Progress
   const [zipProgress, setZipProgress] = useState<{ active: boolean; percent: number; text: string }>({
@@ -455,13 +476,53 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
 
         {/* Photos Grid Section */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">
-              Koleksi Foto ({gallery.photos.length})
-            </h3>
-            <span className="text-xs text-slate-500">
-              {selectedPhotoIds.length} foto terpilih
-            </span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800">
+                  Koleksi Foto ({gallery.photos.length})
+                </h3>
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600">
+                  {selectedPhotoIds.length} foto terpilih
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {previewQuality === 'light'
+                  ? '⚡ Preview Ringan aktif: Hemat kuota internet & pemuatan foto lebih cepat'
+                  : '✨ Preview HD aktif: Tampilan resolusi tinggi & ketajaman foto maksimal'}
+              </p>
+            </div>
+
+            {/* Quality Segmented Control */}
+            <div className="flex items-center gap-1 bg-slate-100/90 p-1 rounded-xl border border-slate-200/60 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => handleQualityChange('light')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  previewQuality === 'light'
+                    ? 'bg-white text-blue-600 shadow-xs ring-1 ring-slate-900/5 font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                }`}
+                title="Preview Ringan: Menghemat kuota dan memuat foto lebih cepat"
+              >
+                <Zap className={`w-3.5 h-3.5 ${previewQuality === 'light' ? 'fill-blue-600 text-blue-600' : 'text-slate-500'}`} />
+                <span>Preview Ringan</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleQualityChange('hd')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  previewQuality === 'hd'
+                    ? 'bg-white text-indigo-600 shadow-xs ring-1 ring-slate-900/5 font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                }`}
+                title="Preview HD: Resolusi lebih tinggi dan detail foto lebih tajam"
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${previewQuality === 'hd' ? 'text-indigo-600' : 'text-slate-500'}`} />
+                <span>Preview HD</span>
+              </button>
+            </div>
           </div>
 
           {gallery.photos.length === 0 ? (
@@ -496,16 +557,22 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
                     >
                       {/* Ambient subtle blur backdrop */}
                       <img
-                        src={photo.thumbnailUrl || photo.webViewLink}
+                        src={getGalleryPhotoPreviewUrl(photo, previewQuality)}
                         alt=""
                         aria-hidden="true"
                         className="absolute inset-0 w-full h-full object-cover opacity-25 filter blur-lg scale-110 pointer-events-none"
                       />
                       {/* 100% Uncropped Photo with object-contain */}
                       <img
-                        src={photo.thumbnailUrl || photo.webViewLink}
+                        src={getGalleryPhotoPreviewUrl(photo, previewQuality)}
                         alt={photo.name}
                         loading="lazy"
+                        onError={(e) => {
+                          const fallback = getGalleryPhotoFallbackUrl(photo, previewQuality);
+                          if (fallback && e.currentTarget.src !== fallback) {
+                            e.currentTarget.src = fallback;
+                          }
+                        }}
                         className="relative z-10 max-w-full max-h-full w-full h-full transition-transform duration-300 group-hover:scale-[1.02]"
                         style={{ objectFit: 'contain', objectPosition: 'center center' }}
                       />

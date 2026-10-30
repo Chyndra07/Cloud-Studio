@@ -204,6 +204,69 @@ export function getPublicPhotoUrl(
 }
 
 /**
+ * Resolves preview URL for Public Gallery photos based on client quality mode:
+ * - 'light' (Preview Ringan - DEFAULT): ~600px width, fast loading, low bandwidth (~30-80 KB)
+ * - 'hd' (Preview HD): ~2048px width, razor-sharp detail for desktop/retina screens (~350-800 KB)
+ * 100% preserves original files in Google Drive for actual downloads.
+ */
+export function getGalleryPhotoPreviewUrl(
+  photo: {
+    driveFileId?: string;
+    id?: string;
+    thumbnailUrl?: string;
+    webViewLink?: string;
+    previewUrl?: string;
+  },
+  quality: 'light' | 'hd' = 'light'
+): string {
+  if (!photo) return '';
+
+  // Local object URL or base64 (e.g. during live upload)
+  if (photo.thumbnailUrl?.startsWith('blob:') || photo.previewUrl?.startsWith('blob:')) {
+    return photo.thumbnailUrl || photo.previewUrl || '';
+  }
+  if (photo.thumbnailUrl?.startsWith('data:') || photo.previewUrl?.startsWith('data:')) {
+    return photo.thumbnailUrl || photo.previewUrl || '';
+  }
+
+  // Extract drive file ID
+  const driveId = extractDriveFileId(photo.driveFileId) || extractDriveFileId(photo.id) || extractDriveFileId(photo.thumbnailUrl);
+
+  if (driveId) {
+    const widthParam = quality === 'light' ? 'w600' : 'w2048';
+    return `https://lh3.googleusercontent.com/u/0/d/${driveId}=${widthParam}`;
+  }
+
+  // If existing thumbnailUrl has width parameter (=w...)
+  if (photo.thumbnailUrl && photo.thumbnailUrl.includes('=w')) {
+    const widthParam = quality === 'light' ? '=w600' : '=w2048';
+    return photo.thumbnailUrl.replace(/=w\d+/, widthParam);
+  }
+
+  return photo.thumbnailUrl || photo.webViewLink || '';
+}
+
+/**
+ * Fallback URL generator if primary Google usercontent URL fails
+ */
+export function getGalleryPhotoFallbackUrl(
+  photo: {
+    driveFileId?: string;
+    id?: string;
+    thumbnailUrl?: string;
+    webViewLink?: string;
+  },
+  quality: 'light' | 'hd' = 'light'
+): string {
+  const driveId = extractDriveFileId(photo.driveFileId) || extractDriveFileId(photo.id);
+  if (driveId) {
+    const sz = quality === 'light' ? 'w600' : 'w2048';
+    return `https://drive.google.com/thumbnail?id=${driveId}&sz=${sz}`;
+  }
+  return photo.thumbnailUrl || photo.webViewLink || '';
+}
+
+/**
  * Returns prioritized URL candidates for downloading 100% original master binary from Google Drive.
  * NO googleusercontent thumbnails, NO preview links.
  */

@@ -15,9 +15,24 @@ import {
   CheckCircle,
   AlertTriangle,
   Image as ImageIcon,
+  Hourglass,
+  CalendarDays,
 } from 'lucide-react';
 import { Album, StudioProfile } from '../types';
 import { getPublicGalleryUrl } from '../config/appConfig';
+
+/**
+ * Format Date to YYYY-MM-DDTHH:mm in local time for datetime-local inputs
+ */
+const formatLocalDateTime = (date: Date): string => {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
 
 interface AlbumsPageProps {
   albums: Album[];
@@ -39,7 +54,7 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
   onUpdateAlbum,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expired'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expiring_soon' | 'expired'>('all');
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   // Edit Modal State
@@ -48,6 +63,7 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
   const [editClient, setEditClient] = useState('');
   const [editPin, setEditPin] = useState('');
   const [editPinEnabled, setEditPinEnabled] = useState(false);
+  const [editExpirationDate, setEditExpirationDate] = useState('');
 
   const handleCopyLink = (galleryId: string) => {
     const url = getPublicGalleryUrl(galleryId);
@@ -57,9 +73,25 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
   };
 
   const getRemainingDays = (expDateString: string) => {
+    if (!expDateString) return 0;
     const diff = new Date(expDateString).getTime() - Date.now();
     const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
     return days;
+  };
+
+  /**
+   * Status kalkulasi album:
+   * - 'expired': sisa <= 0 hari
+   * - 'expiring_soon': sisa > 0 dan <= 3 hari
+   * - 'active': sisa > 3 hari
+   */
+  const getAlbumExpiryStatus = (expDateString: string): 'active' | 'expiring_soon' | 'expired' => {
+    if (!expDateString) return 'expired';
+    const diff = new Date(expDateString).getTime() - Date.now();
+    if (diff <= 0) return 'expired';
+    const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+    if (diff <= threeDaysMs) return 'expiring_soon';
+    return 'active';
   };
 
   const filteredAlbums = albums.filter((album) => {
@@ -70,11 +102,11 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
       album.galleryId.toLowerCase().includes(q) ||
       (album.eventName && album.eventName.toLowerCase().includes(q));
 
-    const isPast = new Date(album.expirationDate).getTime() < Date.now();
-    const isExpired = album.status === 'expired' || isPast;
+    const expiryStatus = getAlbumExpiryStatus(album.expirationDate);
 
-    if (statusFilter === 'active') return matchesSearch && !isExpired && album.status === 'active';
-    if (statusFilter === 'expired') return matchesSearch && isExpired;
+    if (statusFilter === 'active') return matchesSearch && expiryStatus === 'active';
+    if (statusFilter === 'expiring_soon') return matchesSearch && expiryStatus === 'expiring_soon';
+    if (statusFilter === 'expired') return matchesSearch && expiryStatus === 'expired';
     return matchesSearch;
   });
 
@@ -84,11 +116,50 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
     setEditClient(album.clientName);
     setEditPin(album.pin || '');
     setEditPinEnabled(album.isPinEnabled);
+
+    // Parse current expirationDate to datetime-local format
+    if (album.expirationDate) {
+      try {
+        const d = new Date(album.expirationDate);
+        if (!isNaN(d.getTime())) {
+          setEditExpirationDate(formatLocalDateTime(d));
+        } else {
+          setEditExpirationDate(formatLocalDateTime(new Date(Date.now() + 30 * 86400000)));
+        }
+      } catch {
+        setEditExpirationDate(formatLocalDateTime(new Date(Date.now() + 30 * 86400000)));
+      }
+    } else {
+      setEditExpirationDate(formatLocalDateTime(new Date(Date.now() + 30 * 86400000)));
+    }
   };
+
+  const handleApplyPresetDays = (days: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    setEditExpirationDate(formatLocalDateTime(d));
+  };
+
+  // Live remaining time calculation in edit modal
+  const editRemainingDays = editExpirationDate ? getRemainingDays(editExpirationDate) : 0;
+  const editExpiryStatus = editExpirationDate ? getAlbumExpiryStatus(editExpirationDate) : 'expired';
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAlbum) return;
+
+    let targetExpIso: string;
+    if (editExpirationDate) {
+      const parsedDate = new Date(editExpirationDate);
+      targetExpIso = !isNaN(parsedDate.getTime())
+        ? parsedDate.toISOString()
+        : editingAlbum.expirationDate || new Date(Date.now() + 30 * 86400000).toISOString();
+    } else {
+      targetExpIso = editingAlbum.expirationDate || new Date(Date.now() + 30 * 86400000).toISOString();
+    }
+
+    const isPast = new Date(targetExpIso).getTime() < Date.now();
+    const updatedStatus: 'active' | 'expired' | 'disabled' = isPast ? 'expired' : 'active';
 
     const updated: Album = {
       ...editingAlbum,
@@ -96,6 +167,8 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
       clientName: editClient.trim(),
       pin: editPin.trim(),
       isPinEnabled: editPinEnabled && Boolean(editPin.trim()),
+      expirationDate: targetExpIso,
+      status: updatedStatus,
       updatedAt: new Date().toISOString(),
     };
 
@@ -160,10 +233,21 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
           </button>
 
           <button
+            onClick={() => setStatusFilter('expiring_soon')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+              statusFilter === 'expiring_soon'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            Segera Berakhir
+          </button>
+
+          <button
             onClick={() => setStatusFilter('expired')}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
               statusFilter === 'expired'
-                ? 'bg-amber-600 text-white shadow-sm'
+                ? 'bg-rose-600 text-white shadow-sm'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -172,30 +256,35 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
         </div>
       </div>
 
-      {/* Albums Grid */}
+      {/* Album Grid Cards */}
       {filteredAlbums.length === 0 ? (
-        <div className="text-center py-16 px-4 bg-white border border-slate-200 rounded-2xl shadow-sm">
-          <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
-            <FolderKanban className="w-6 h-6" />
+        <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center space-y-4 shadow-sm">
+          <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center mx-auto border border-slate-100">
+            <FolderKanban className="w-8 h-8" />
           </div>
-          <h4 className="text-sm font-bold text-slate-800">Tidak Ada Album Ditemukan</h4>
-          <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 mb-4">
-            {searchQuery
-              ? `Tidak ada album yang cocok dengan pencarian "${searchQuery}".`
-              : 'Belum ada album pada kategori ini. Silakan buat album baru.'}
-          </p>
-          <button
-            onClick={onOpenCreateAlbum}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
-          >
-            + Buat Album Baru
-          </button>
+          <div className="space-y-1">
+            <h3 className="text-base font-bold text-slate-800">Tidak ada album ditemukan</h3>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              {searchQuery
+                ? `Tidak ada album yang cocok dengan pencarian "${searchQuery}".`
+                : 'Mulai dengan membuat album baru untuk pelanggan studio Anda.'}
+            </p>
+          </div>
+          {!searchQuery && (
+            <button
+              onClick={onOpenCreateAlbum}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm inline-flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              Buat Album Sekarang
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {filteredAlbums.map((album) => {
             const daysLeft = getRemainingDays(album.expirationDate);
-            const isExpired = daysLeft <= 0 || album.status === 'expired';
+            const expiryStatus = getAlbumExpiryStatus(album.expirationDate);
 
             return (
               <div
@@ -223,9 +312,13 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
                       {album.galleryId}
                     </span>
 
-                    {isExpired ? (
-                      <span className="inline-flex items-center gap-1 bg-amber-500/95 backdrop-blur-md text-white text-[11px] font-bold px-2 py-0.5 rounded-lg shadow-sm">
+                    {expiryStatus === 'expired' ? (
+                      <span className="inline-flex items-center gap-1 bg-rose-600/95 backdrop-blur-md text-white text-[11px] font-bold px-2 py-0.5 rounded-lg shadow-sm">
                         <Clock className="w-3 h-3" /> Kedaluwarsa
+                      </span>
+                    ) : expiryStatus === 'expiring_soon' ? (
+                      <span className="inline-flex items-center gap-1 bg-amber-500/95 backdrop-blur-md text-white text-[11px] font-bold px-2 py-0.5 rounded-lg shadow-sm animate-pulse">
+                        <Hourglass className="w-3 h-3" /> Sisa {daysLeft} Hari (Segera Berakhir)
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 bg-emerald-600/95 backdrop-blur-md text-white text-[11px] font-bold px-2 py-0.5 rounded-lg shadow-sm">
@@ -331,8 +424,14 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
       {/* Edit Album Modal */}
       {editingAlbum && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4">
-            <h3 className="text-base font-bold text-slate-900">Edit Informasi Album</h3>
+          <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900">Edit Informasi Album</h3>
+              <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                {editingAlbum.galleryId}
+              </span>
+            </div>
+
             <form onSubmit={handleSaveEdit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nama Album</label>
@@ -356,14 +455,17 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
                 />
               </div>
 
+              {/* Proteksi PIN */}
               <div className="p-3 bg-slate-50 rounded-xl space-y-2 border border-slate-200">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800">Proteksi PIN</span>
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5 text-blue-600" /> Proteksi PIN
+                  </span>
                   <input
                     type="checkbox"
                     checked={editPinEnabled}
                     onChange={(e) => setEditPinEnabled(e.target.checked)}
-                    className="w-4 h-4 accent-blue-600"
+                    className="w-4 h-4 accent-blue-600 cursor-pointer"
                   />
                 </div>
                 {editPinEnabled && (
@@ -378,17 +480,111 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
                 )}
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3">
+              {/* [BARU] Masa Aktif Album */}
+              <div className="p-3.5 bg-slate-50 rounded-xl space-y-3 border border-slate-200">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <CalendarDays className="w-4 h-4 text-blue-600" />
+                    <span>Masa Aktif Album</span>
+                  </label>
+
+                  {/* Badge Status Masa Aktif */}
+                  {editExpiryStatus === 'expired' ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1">
+                      <Clock className="w-2.5 h-2.5" /> Kedaluwarsa
+                    </span>
+                  ) : editExpiryStatus === 'expiring_soon' ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                      <Hourglass className="w-2.5 h-2.5" /> Segera Berakhir
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                      <CheckCircle className="w-2.5 h-2.5" /> Aktif
+                    </span>
+                  )}
+                </div>
+
+                {/* Date & Time Picker */}
+                <div className="space-y-1">
+                  <input
+                    type="datetime-local"
+                    required
+                    value={editExpirationDate}
+                    onChange={(e) => setEditExpirationDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                  />
+                </div>
+
+                {/* Live Remaining Time Info */}
+                <div className="p-2.5 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between text-xs">
+                  <span className="text-slate-500 font-medium">Sisa masa aktif:</span>
+                  {editRemainingDays > 0 ? (
+                    <span className={`font-bold ${editExpiryStatus === 'expiring_soon' ? 'text-amber-700' : 'text-emerald-700'}`}>
+                      {editRemainingDays} hari lagi
+                    </span>
+                  ) : (
+                    <span className="font-bold text-rose-600">
+                      Masa aktif habis
+                    </span>
+                  )}
+                </div>
+
+                {/* Quick Presets */}
+                <div className="pt-1">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                    Perpanjang Cepat:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPresetDays(7)}
+                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition shadow-2xs"
+                    >
+                      +7 Hari
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPresetDays(14)}
+                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition shadow-2xs"
+                    >
+                      +14 Hari
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPresetDays(30)}
+                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition shadow-2xs"
+                    >
+                      +30 Hari
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPresetDays(90)}
+                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition shadow-2xs"
+                    >
+                      +90 Hari
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPresetDays(365)}
+                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition shadow-2xs"
+                    >
+                      +1 Tahun
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setEditingAlbum(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition active:scale-95"
                 >
                   Simpan Perubahan
                 </button>

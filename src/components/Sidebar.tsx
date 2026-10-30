@@ -106,30 +106,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
         } lg:static lg:z-10`}
       >
         {/* Top Brand Header */}
-        <div className="p-5 border-b border-slate-100">
-          <div className="flex items-center gap-3">
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center gap-3">
+          <div className="w-16 h-16 rounded-full bg-white border border-slate-200 p-1 flex items-center justify-center shadow-xs overflow-hidden shrink-0">
             {(studioProfile.studioLogoUrl || studioProfile.logoUrl) ? (
-              <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 p-1 flex items-center justify-center shadow-xs overflow-hidden shrink-0">
-                <img
-                  src={studioProfile.studioLogoUrl || studioProfile.logoUrl}
-                  alt={studioProfile.studioName}
-                  className="max-h-full max-w-full object-contain"
-                  referrerPolicy="no-referrer"
-                />
-              </div>
+              <img
+                src={studioProfile.studioLogoUrl || studioProfile.logoUrl}
+                alt={studioProfile.studioName}
+                className="w-full h-full object-contain rounded-full"
+                referrerPolicy="no-referrer"
+              />
             ) : (
-              <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs font-bold shrink-0">
-                <QrCode className="w-5 h-5" />
+              <div className="w-full h-full rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">
+                <QrCode className="w-7 h-7" />
               </div>
             )}
-            <div className="overflow-hidden min-w-0">
-              <h2 className="font-bold text-sm text-slate-900 truncate">
-                {studioProfile.studioName || (user ? user.name + ' Studio' : 'GaleriFotoQR Cloud Studio')}
-              </h2>
-              <p className="text-[11px] text-slate-500 truncate">
-                {isDriveConnected && user?.email ? user.email : 'Google Drive Belum Terhubung'}
-              </p>
-            </div>
+          </div>
+          <div className="overflow-hidden min-w-0 flex-1 truncate">
+            <h2 className="font-bold text-sm sm:text-base text-slate-900 truncate leading-tight">
+              {studioProfile.studioName || (user ? user.name + ' Studio' : 'GaleriFotoQR Cloud Studio')}
+            </h2>
+            <span
+              className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-widest block mt-0.5 truncate text-blue-600"
+              style={{ color: studioProfile.brandColor || undefined }}
+            >
+              CLOUD STUDIO
+            </span>
           </div>
         </div>
 

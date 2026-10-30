@@ -55,20 +55,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col h-screen shrink-0 border-r border-slate-800 select-none">
       {/* Brand Header */}
-      <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 shrink-0 overflow-hidden">
+      <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center gap-3">
+        <div className="w-16 h-16 rounded-full bg-white border border-slate-700/60 p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
           {profile?.logoUrl ? (
-            <img src={profile.logoUrl} alt="Logo" className="w-full h-full object-cover" />
+            <img
+              src={profile.logoUrl}
+              alt={profile?.studioName || 'Logo Studio'}
+              className="w-full h-full object-contain rounded-full"
+            />
           ) : (
-            <Camera className="w-5 h-5" />
+            <div className="w-full h-full rounded-full bg-blue-600 flex items-center justify-center text-white">
+              <Camera className="w-7 h-7" />
+            </div>
           )}
         </div>
-        <div className="truncate">
-          <h1 className="text-sm font-bold text-white tracking-tight truncate">
+        <div className="min-w-0 flex-1 truncate">
+          <h1
+            className="text-sm sm:text-base font-bold text-white tracking-tight truncate leading-tight"
+            title={profile?.studioName || 'GaleriFotoQR'}
+          >
             {profile?.studioName || 'GaleriFotoQR'}
           </h1>
-          <span className="text-[10px] font-semibold text-blue-400 uppercase tracking-widest block">
-            Cloud Studio
+          <span
+            className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-widest block mt-0.5 truncate"
+            style={{ color: profile?.brandColor || '#38bdf8' }}
+          >
+            CLOUD STUDIO
           </span>
         </div>
       </div>

@@ -46,20 +46,38 @@ export const MobileNav: React.FC<MobileNavProps> = ({
 
       {/* Slide Drawer */}
       <div className="relative w-72 max-w-[80vw] bg-slate-900 text-slate-300 flex flex-col h-full z-10">
-        <div className="p-5 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold">
-              <Camera className="w-4 h-4" />
+        <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white border border-slate-700/60 p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
+              {profile?.logoUrl ? (
+                <img
+                  src={profile.logoUrl}
+                  alt={profile?.studioName || 'Logo Studio'}
+                  className="w-full h-full object-contain rounded-full"
+                />
+              ) : (
+                <div className="w-full h-full rounded-full bg-blue-600 flex items-center justify-center text-white">
+                  <Camera className="w-6 h-6" />
+                </div>
+              )}
             </div>
-            <div>
-              <h3 className="text-xs font-bold text-white truncate max-w-[140px]">
+            <div className="min-w-0 flex-1 truncate">
+              <h3
+                className="text-sm font-bold text-white tracking-tight truncate leading-tight"
+                title={profile?.studioName || 'GaleriFotoQR'}
+              >
                 {profile?.studioName || 'GaleriFotoQR'}
               </h3>
-              <p className="text-[9px] text-blue-400 uppercase font-semibold">Cloud Studio</p>
+              <p
+                className="text-[9px] font-semibold uppercase tracking-widest block mt-0.5 truncate"
+                style={{ color: profile?.brandColor || '#38bdf8' }}
+              >
+                CLOUD STUDIO
+              </p>
             </div>
           </div>
 
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded-lg">
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-white rounded-lg shrink-0">
             <X className="w-5 h-5" />
           </button>
         </div>

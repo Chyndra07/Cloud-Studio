@@ -17,6 +17,9 @@ import {
   Image as ImageIcon,
   Hourglass,
   CalendarDays,
+  Sparkles,
+  Sliders,
+  Check,
 } from 'lucide-react';
 import { Album, StudioProfile } from '../types';
 import { getPublicGalleryUrl } from '../config/appConfig';
@@ -32,6 +35,24 @@ const formatLocalDateTime = (date: Date): string => {
   const hours = pad(date.getHours());
   const minutes = pad(date.getMinutes());
   return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+/**
+ * Format ISO date string into readable Indonesian date format
+ */
+const formatReadableDate = (dateString: string): string => {
+  if (!dateString) return '-';
+  try {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return '-';
+    return d.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+  } catch {
+    return '-';
+  }
 };
 
 interface AlbumsPageProps {
@@ -64,6 +85,7 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
   const [editPin, setEditPin] = useState('');
   const [editPinEnabled, setEditPinEnabled] = useState(false);
   const [editExpirationDate, setEditExpirationDate] = useState('');
+  const [isCustomDatePickerOpen, setIsCustomDatePickerOpen] = useState(false);
 
   const handleCopyLink = (galleryId: string) => {
     const url = getPublicGalleryUrl(galleryId);
@@ -116,8 +138,9 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
     setEditClient(album.clientName);
     setEditPin(album.pin || '');
     setEditPinEnabled(album.isPinEnabled);
+    setIsCustomDatePickerOpen(false);
 
-    // Parse current expirationDate to datetime-local format
+    // Inisialisasi tanggal kedaluwarsa
     if (album.expirationDate) {
       try {
         const d = new Date(album.expirationDate);
@@ -134,10 +157,26 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
     }
   };
 
-  const handleApplyPresetDays = (days: number) => {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    setEditExpirationDate(formatLocalDateTime(d));
+  /**
+   * Logika Penambahan Masa Aktif:
+   * - Tambahkan N hari dari tanggal kedaluwarsa yang sedang berlaku.
+   * - Jika album sudah kedaluwarsa, perpanjangan dihitung mulai dari tanggal dan waktu saat ini (NOW).
+   * - Dapat diperpanjang berkali-kali secara kumulatif.
+   */
+  const handleAddDays = (daysToAdd: number) => {
+    const nowMs = Date.now();
+    let baseTime = nowMs;
+
+    if (editExpirationDate) {
+      const parsedTime = new Date(editExpirationDate).getTime();
+      if (!isNaN(parsedTime) && parsedTime > nowMs) {
+        // Jika masih aktif, tambahkan dari tanggal kedaluwarsa yang sedang berlaku
+        baseTime = parsedTime;
+      }
+    }
+
+    const newDate = new Date(baseTime + daysToAdd * 86400000);
+    setEditExpirationDate(formatLocalDateTime(newDate));
   };
 
   // Live remaining time calculation in edit modal
@@ -424,7 +463,7 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
       {/* Edit Album Modal */}
       {editingAlbum && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white w-full max-w-lg rounded-2xl p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <h3 className="text-base font-bold text-slate-900">Edit Informasi Album</h3>
               <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
@@ -480,98 +519,152 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
                 )}
               </div>
 
-              {/* [BARU] Masa Aktif Album */}
-              <div className="p-3.5 bg-slate-50 rounded-xl space-y-3 border border-slate-200">
+              {/* [LENGKAP] Masa Aktif Album */}
+              <div className="p-4 bg-slate-50/80 rounded-2xl space-y-3.5 border border-slate-200">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                     <CalendarDays className="w-4 h-4 text-blue-600" />
                     <span>Masa Aktif Album</span>
                   </label>
 
-                  {/* Badge Status Masa Aktif */}
+                  {/* Status Badge */}
                   {editExpiryStatus === 'expired' ? (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1">
-                      <Clock className="w-2.5 h-2.5" /> Kedaluwarsa
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1 shadow-2xs">
+                      <Clock className="w-3 h-3 text-rose-600" /> Kedaluwarsa
                     </span>
                   ) : editExpiryStatus === 'expiring_soon' ? (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
-                      <Hourglass className="w-2.5 h-2.5" /> Segera Berakhir
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1 shadow-2xs animate-pulse">
+                      <Hourglass className="w-3 h-3 text-amber-600" /> Segera Berakhir
                     </span>
                   ) : (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                      <CheckCircle className="w-2.5 h-2.5" /> Aktif
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1 shadow-2xs">
+                      <CheckCircle className="w-3 h-3 text-emerald-600" /> Aktif
                     </span>
                   )}
                 </div>
 
-                {/* Date & Time Picker */}
-                <div className="space-y-1">
-                  <input
-                    type="datetime-local"
-                    required
-                    value={editExpirationDate}
-                    onChange={(e) => setEditExpirationDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
-                  />
+                {/* Ringkasan Parameter Masa Aktif */}
+                <div className="p-3 bg-white rounded-xl border border-slate-200/90 text-xs space-y-1.5 shadow-2xs">
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span className="text-[11px]">Tanggal Mulai Masa Aktif:</span>
+                    <span className="font-semibold text-slate-800">
+                      {formatReadableDate(editingAlbum.createdAt || editingAlbum.eventDate || '')}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span className="text-[11px]">Kedaluwarsa Sebelumnya:</span>
+                    <span className="font-medium text-slate-700">
+                      {formatReadableDate(editingAlbum.expirationDate)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                    <span className="text-[11px] font-semibold text-slate-700">Kedaluwarsa Baru:</span>
+                    <span className="font-bold text-blue-600">
+                      {formatReadableDate(editExpirationDate)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                    <span className="text-[11px] font-semibold text-slate-700">Sisa Masa Aktif:</span>
+                    {editRemainingDays > 0 ? (
+                      <span className={`font-bold ${editExpiryStatus === 'expiring_soon' ? 'text-amber-700' : 'text-emerald-700'}`}>
+                        {editRemainingDays} hari lagi
+                      </span>
+                    ) : (
+                      <span className="font-bold text-rose-600">
+                        Masa aktif habis
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                {/* Live Remaining Time Info */}
-                <div className="p-2.5 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between text-xs">
-                  <span className="text-slate-500 font-medium">Sisa masa aktif:</span>
-                  {editRemainingDays > 0 ? (
-                    <span className={`font-bold ${editExpiryStatus === 'expiring_soon' ? 'text-amber-700' : 'text-emerald-700'}`}>
-                      {editRemainingDays} hari lagi
-                    </span>
-                  ) : (
-                    <span className="font-bold text-rose-600">
-                      Masa aktif habis
-                    </span>
-                  )}
-                </div>
-
-                {/* Quick Presets */}
-                <div className="pt-1">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
-                    Perpanjang Cepat:
+                {/* Pilihan Perpanjangan Masa Aktif Secara Cepat */}
+                <div className="space-y-2">
+                  <span className="text-[11px] font-bold text-slate-700 block">
+                    Pilihan Perpanjangan Cepat:
                   </span>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
                     <button
                       type="button"
-                      onClick={() => handleApplyPresetDays(7)}
-                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition shadow-2xs"
+                      onClick={() => handleAddDays(7)}
+                      title="Tambahkan 7 hari"
+                      className="px-2.5 py-1.5 bg-white hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition active:scale-95 shadow-2xs"
                     >
                       +7 Hari
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleApplyPresetDays(14)}
-                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition shadow-2xs"
+                      onClick={() => handleAddDays(14)}
+                      title="Tambahkan 14 hari"
+                      className="px-2.5 py-1.5 bg-white hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition active:scale-95 shadow-2xs"
                     >
                       +14 Hari
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleApplyPresetDays(30)}
-                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition shadow-2xs"
+                      onClick={() => handleAddDays(30)}
+                      title="Tambahkan 30 hari"
+                      className="px-2.5 py-1.5 bg-white hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition active:scale-95 shadow-2xs"
                     >
                       +30 Hari
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleApplyPresetDays(90)}
-                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition shadow-2xs"
+                      onClick={() => handleAddDays(60)}
+                      title="Tambahkan 60 hari"
+                      className="px-2.5 py-1.5 bg-white hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition active:scale-95 shadow-2xs"
+                    >
+                      +60 Hari
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAddDays(90)}
+                      title="Tambahkan 90 hari"
+                      className="px-2.5 py-1.5 bg-white hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition active:scale-95 shadow-2xs"
                     >
                       +90 Hari
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleApplyPresetDays(365)}
-                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition shadow-2xs"
+                      onClick={() => handleAddDays(180)}
+                      title="Tambahkan 180 hari"
+                      className="px-2.5 py-1.5 bg-white hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition active:scale-95 shadow-2xs"
                     >
-                      +1 Tahun
+                      +180 Hari
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomDatePickerOpen(!isCustomDatePickerOpen)}
+                      className={`col-span-3 sm:col-span-2 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition active:scale-95 shadow-2xs flex items-center justify-center gap-1.5 border ${
+                        isCustomDatePickerOpen
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300'
+                      }`}
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      <span>{isCustomDatePickerOpen ? 'Tutup Atur Sendiri' : 'Atur Sendiri'}</span>
                     </button>
                   </div>
                 </div>
+
+                {/* Mode Atur Sendiri (Date Picker) */}
+                {isCustomDatePickerOpen && (
+                  <div className="pt-2 border-t border-slate-200/80 space-y-1.5 animate-in fade-in duration-200">
+                    <label className="block text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Tentukan Tanggal & Waktu Kedaluwarsa:</span>
+                    </label>
+                    <input
+                      type="datetime-local"
+                      required
+                      value={editExpirationDate}
+                      onChange={(e) => setEditExpirationDate(e.target.value)}
+                      className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">

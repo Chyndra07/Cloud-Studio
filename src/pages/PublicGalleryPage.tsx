@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Lock,
   Shield,
   Clock,
   Heart,
@@ -339,11 +338,32 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white flex items-center justify-center p-6">
         <div className="max-w-sm w-full bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-8 text-center shadow-2xl space-y-6">
-          <div
-            className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto shadow-lg"
-            style={{ backgroundColor: gallery.studio.brandColor || '#2563eb' }}
-          >
-            <Lock className="w-8 h-8 text-white" />
+          {/* Studio Brand Logo or Camera Fallback */}
+          <div className="flex justify-center">
+            {gallery.studio?.logoUrl ? (
+              <div className="w-20 h-20 rounded-2xl bg-white p-2.5 flex items-center justify-center shadow-xl border border-slate-200/80 overflow-hidden">
+                <img
+                  src={gallery.studio.logoUrl}
+                  alt={gallery.studio.studioName || 'Logo Studio'}
+                  className="max-w-full max-h-full object-contain"
+                  onError={(e) => {
+                    // Fallback to camera icon if image fails to load
+                    const target = e.currentTarget;
+                    target.style.display = 'none';
+                    if (target.parentElement) {
+                      target.parentElement.innerHTML = `<div class="w-full h-full rounded-xl flex items-center justify-center text-white" style="background-color: ${gallery.studio?.brandColor || '#2563eb'}"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></div>`;
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <div
+                className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg text-white"
+                style={{ backgroundColor: gallery.studio?.brandColor || '#2563eb' }}
+              >
+                <Camera className="w-8 h-8 text-white" />
+              </div>
+            )}
           </div>
 
           <div>

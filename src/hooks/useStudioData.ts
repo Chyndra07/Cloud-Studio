@@ -331,6 +331,13 @@ export function useStudioData(user: User | null, accessToken: string | null) {
       };
       await saveStudioProfile(updated);
       setProfile(updated);
+
+      // Re-sync all albums' public gallery metadata so new logo/banner/branding is immediately live across all customer albums
+      if (albums && albums.length > 0) {
+        albums.forEach((alb) => {
+          syncPublicGalleryFromAlbum(alb).catch((e) => console.warn('[SYNC] Auto-sync album branding notice:', e));
+        });
+      }
     } catch (err: any) {
       console.error('[STUDIO] Update profile error:', err);
       setError(err?.message || 'Gagal memperbarui profil studio.');

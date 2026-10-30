@@ -320,7 +320,7 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 items-start">
           {filteredAlbums.map((album) => {
             const daysLeft = getRemainingDays(album.expirationDate);
             const expiryStatus = getAlbumExpiryStatus(album.expirationDate);
@@ -330,14 +330,24 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
                 key={album.albumId}
                 className="bg-white border border-slate-200 hover:border-slate-300 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
               >
-                {/* Cover & Gallery ID Header */}
-                <div className="relative aspect-[16/9] bg-slate-100 overflow-hidden">
+                {/* Cover & Gallery ID Header (Portrait 9:16) */}
+                <div className="relative aspect-[9/16] w-full bg-slate-900 overflow-hidden flex items-center justify-center">
                   {album.coverPhotoUrl || album.photos?.[0]?.thumbnailUrl ? (
-                    <img
-                      src={album.coverPhotoUrl || album.photos?.[0]?.thumbnailUrl}
-                      alt={album.albumName}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
+                    <>
+                      {/* Ambient blur backdrop for smooth uncropped aesthetic */}
+                      <img
+                        src={album.coverPhotoUrl || album.photos?.[0]?.thumbnailUrl}
+                        alt=""
+                        aria-hidden="true"
+                        className="absolute inset-0 w-full h-full object-cover opacity-25 filter blur-lg scale-110 pointer-events-none"
+                      />
+                      {/* 100% Uncropped Photo with object-contain */}
+                      <img
+                        src={album.coverPhotoUrl || album.photos?.[0]?.thumbnailUrl}
+                        alt={album.albumName}
+                        className="relative z-1 max-w-full max-h-full w-full h-full object-contain object-center transition-transform duration-300 group-hover:scale-[1.02]"
+                      />
+                    </>
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-100">
                       <ImageIcon className="w-10 h-10 mb-1 opacity-50" />

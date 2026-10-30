@@ -14,10 +14,11 @@ import { AlbumFolder } from '../../types';
 interface FolderCardProps {
   folder: AlbumFolder;
   onOpen: (folder: AlbumFolder) => void;
-  onRename: (folder: AlbumFolder) => void;
-  onDelete: (folder: AlbumFolder) => void;
+  onRename?: (folder: AlbumFolder) => void;
+  onDelete?: (folder: AlbumFolder) => void;
   onMove?: (folder: AlbumFolder) => void;
   onDropPhoto?: (photoId: string, targetFolderId: string) => void;
+  readOnly?: boolean;
 }
 
 export const FolderCard: React.FC<FolderCardProps> = ({
@@ -27,23 +28,29 @@ export const FolderCard: React.FC<FolderCardProps> = ({
   onDelete,
   onMove,
   onDropPhoto,
+  readOnly = false,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
+  const canManage = !readOnly && (Boolean(onRename) || Boolean(onDelete) || Boolean(onMove));
+
   const handleDragOver = (e: React.DragEvent) => {
+    if (readOnly || !onDropPhoto) return;
     e.preventDefault();
     e.stopPropagation();
     if (!isDragOver) setIsDragOver(true);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
+    if (readOnly || !onDropPhoto) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
+    if (readOnly || !onDropPhoto) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
@@ -90,67 +97,74 @@ export const FolderCard: React.FC<FolderCardProps> = ({
           </div>
         </div>
 
-        {/* Dropdown Menu Button */}
-        <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all opacity-80 group-hover:opacity-100"
-            title="Opsi Folder"
-          >
-            <MoreVertical className="w-4 h-4" />
-          </button>
+        {/* Dropdown Menu Button (Admin Only) */}
+        {canManage && (
+          <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all opacity-80 group-hover:opacity-100"
+              title="Opsi Folder"
+            >
+              <MoreVertical className="w-4 h-4" />
+            </button>
 
-          {isMenuOpen && (
-            <>
-              <div
-                className="fixed inset-0 z-20"
-                onClick={() => setIsMenuOpen(false)}
-              />
-              <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-2xl shadow-xl z-30 py-1 text-xs">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    onRename(folder);
-                  }}
-                  className="w-full px-3.5 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                >
-                  <Edit2 className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Ubah Nama Folder</span>
-                </button>
+            {isMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-20"
+                  onClick={() => setIsMenuOpen(false)}
+                />
+                <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-2xl shadow-xl z-30 py-1 text-xs">
+                  {onRename && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        onRename(folder);
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <Edit2 className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Ubah Nama Folder</span>
+                    </button>
+                  )}
 
-                {onMove && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      onMove(folder);
-                    }}
-                    className="w-full px-3.5 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                  >
-                    <FolderTree className="w-3.5 h-3.5 text-blue-500" />
-                    <span>Pindahkan Folder</span>
-                  </button>
-                )}
+                  {onMove && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        onMove(folder);
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <FolderTree className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Pindahkan Folder</span>
+                    </button>
+                  )}
 
-                <div className="my-1 border-t border-slate-100" />
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    onDelete(folder);
-                  }}
-                  className="w-full px-3.5 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-medium"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Hapus Folder</span>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+                  {onDelete && (
+                    <>
+                      <div className="my-1 border-t border-slate-100" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          onDelete(folder);
+                        }}
+                        className="w-full px-3.5 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-medium"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Hapus Folder</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Bottom Bar: Date & Open indicator */}

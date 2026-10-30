@@ -18,13 +18,17 @@ import {
   RefreshCw,
   Sparkles,
   Zap,
+  Folder,
+  ArrowLeft,
+  Search,
 } from 'lucide-react';
-import { PublicGalleryData, PhotoItem, ClientSelection } from '../types';
+import { PublicGalleryData, PhotoItem, ClientSelection, AlbumFolder } from '../types';
 import { getPublicGalleryData, getClientSelection, saveClientSelection } from '../services/dbService';
 import { downloadSinglePhoto, downloadPhotosAsZip } from '../services/downloadService';
 import { ModernStudioBanner } from '../components/banner/ModernStudioBanner';
 import { getGalleryPhotoPreviewUrl, getGalleryPhotoFallbackUrl } from '../services/photoService';
 import { applyTypography } from '../services/typographyService';
+import { FolderCard } from '../components/albums/FolderCard';
 
 interface PublicGalleryPageProps {
   galleryId: string;
@@ -89,6 +93,15 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
     percent: 0,
     text: '',
   });
+
+  // Tab Navigation State ('photos' | 'folders' | 'selections')
+  const [activeTab, setActiveTab] = useState<'photos' | 'folders' | 'selections'>('photos');
+
+  // Active Subfolder ID inside 'folders' tab
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+
+  // Search filter query
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   const cleanGalleryId = (galleryId || '').trim().toUpperCase();
 
@@ -431,6 +444,134 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
   const brandColor = gallery.studio.brandColor || '#2563eb';
   const daysRemaining = getRemainingDays();
 
+  // Collections & Folder Structuring
+  const allPhotos = gallery.photos || [];
+  const allFolders = gallery.folders || [];
+  const selectedPhotosList = allPhotos.filter((p) => selectedPhotoIds.includes(p.driveFileId));
+
+  // Current folder level computation for "folders" tab
+  const currentFolderObj = currentFolderId ? allFolders.find((f) => f.id === currentFolderId) : null;
+  const currentLevelFolders = allFolders.filter((f) =>
+    currentFolderId ? f.parentId === currentFolderId : !f.parentId
+  );
+  const currentLevelPhotos = allPhotos.filter((p) =>
+    currentFolderId ? p.folderId === currentFolderId : !p.folderId
+  );
+
+  // Photo Search Filters
+  const filteredAllPhotos = allPhotos.filter((p) =>
+    p.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
+  );
+  const filteredCurrentLevelPhotos = currentLevelPhotos.filter((p) =>
+    p.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
+  );
+
+  // Shared Photo Card Renderer
+  const renderPhotoCard = (photo: PhotoItem, index: number) => {
+    const isSelected = selectedPhotoIds.includes(photo.driveFileId);
+    const note = photoNotes[photo.driveFileId];
+
+    return (
+      <div
+        key={photo.driveFileId}
+        className={`bg-white border rounded-2xl overflow-hidden shadow-sm transition-all flex flex-col justify-between group ${
+          isSelected
+            ? 'border-rose-500 ring-2 ring-rose-500/20 shadow-md'
+            : 'border-slate-200 hover:border-slate-300'
+        }`}
+      >
+        {/* Thumbnail Image (Portrait 9:16) */}
+        <div
+          onClick={() => {
+            const globalIndex = gallery.photos.findIndex((p) => p.driveFileId === photo.driveFileId);
+            setPreviewIndex(globalIndex >= 0 ? globalIndex : index);
+          }}
+          className="relative w-full aspect-[9/16] bg-slate-950 overflow-hidden flex items-center justify-center cursor-pointer rounded-t-2xl shrink-0"
+          style={{ aspectRatio: '9 / 16', width: '100%' }}
+        >
+          {/* Ambient subtle blur backdrop */}
+          <img
+            src={getGalleryPhotoPreviewUrl(photo, previewQuality)}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 w-full h-full object-cover opacity-25 filter blur-lg scale-110 pointer-events-none"
+          />
+          {/* 100% Uncropped Photo with object-contain */}
+          <img
+            src={getGalleryPhotoPreviewUrl(photo, previewQuality)}
+            alt={photo.name}
+            loading="lazy"
+            onError={(e) => {
+              const fallback = getGalleryPhotoFallbackUrl(photo, previewQuality);
+              if (fallback && e.currentTarget.src !== fallback) {
+                e.currentTarget.src = fallback;
+              }
+            }}
+            className="relative z-10 max-w-full max-h-full w-full h-full transition-transform duration-300 group-hover:scale-[1.02]"
+            style={{ objectFit: 'contain', objectPosition: 'center center' }}
+          />
+
+          {/* Favorite Heart Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleFavorite(photo.driveFileId);
+            }}
+            className={`absolute top-2 right-2 p-2 rounded-full shadow-md transition-all active:scale-90 ${
+              isSelected
+                ? 'bg-rose-500 text-white'
+                : 'bg-black/40 hover:bg-black/60 text-white/90'
+            }`}
+            title={isSelected ? 'Batalkan Pilihan' : 'Pilih Foto Favorit'}
+          >
+            <Heart className={`w-4 h-4 ${isSelected ? 'fill-current' : ''}`} />
+          </button>
+
+          {/* Quick Download Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              downloadSinglePhoto(photo);
+            }}
+            className="absolute bottom-2 right-2 p-1.5 bg-black/40 hover:bg-black/70 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Unduh Foto Ini"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Bottom Details & Note */}
+        <div className="p-3 space-y-1.5 bg-white">
+          <p className="text-[11px] font-semibold text-slate-800 truncate" title={photo.name}>
+            {photo.name}
+          </p>
+
+          {note ? (
+            <div
+              onClick={() => {
+                setEditingNotePhotoId(photo.driveFileId);
+                setActiveNoteText(note);
+              }}
+              className="p-1.5 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-900 cursor-pointer hover:bg-amber-100"
+            >
+              <p className="truncate">📝 "{note}"</p>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setEditingNotePhotoId(photo.driveFileId);
+                setActiveNoteText('');
+              }}
+              className="text-[10px] font-medium text-slate-400 hover:text-blue-600 flex items-center gap-1"
+            >
+              <FileText className="w-3 h-3" /> + Tambah Catatan
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-28">
       {/* Top Studio Brand Header */}
@@ -509,172 +650,335 @@ export const PublicGalleryPage: React.FC<PublicGalleryPageProps> = ({ galleryId,
           </div>
         )}
 
-        {/* Photos Grid Section */}
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800">
-                  Koleksi Foto ({gallery.photos.length})
-                </h3>
-                <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600">
-                  {selectedPhotoIds.length} foto terpilih
-                </span>
+        {/* Segmented Navigation Tabs */}
+        <div className="flex items-center gap-2 border-b border-slate-200">
+          <button
+            onClick={() => setActiveTab('photos')}
+            className={`flex items-center gap-2 pb-3 px-4 text-xs font-bold border-b-2 transition-all ${
+              activeTab === 'photos'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <ImageIcon className="w-4 h-4" />
+            Semua Foto ({allPhotos.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('folders')}
+            className={`flex items-center gap-2 pb-3 px-4 text-xs font-bold border-b-2 transition-all ${
+              activeTab === 'folders'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Folder className="w-4 h-4 text-amber-500" />
+            Struktur Folder ({allFolders.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('selections')}
+            className={`flex items-center gap-2 pb-3 px-4 text-xs font-bold border-b-2 transition-all ${
+              activeTab === 'selections'
+                ? 'border-rose-600 text-rose-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Heart className="w-4 h-4 text-rose-500" />
+            Pilihan & Catatan Pelanggan ({selectedPhotoIds.length})
+          </button>
+        </div>
+
+        {/* ======================================================== */}
+        {/* TAB 1: SEMUA FOTO */}
+        {/* ======================================================== */}
+        {activeTab === 'photos' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800">
+                    Koleksi Foto ({allPhotos.length})
+                  </h3>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600">
+                    {selectedPhotoIds.length} foto terpilih
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {previewQuality === 'light'
+                    ? '⚡ Preview Ringan aktif: Hemat kuota internet & pemuatan foto lebih cepat'
+                    : '✨ Preview HD aktif: Tampilan resolusi tinggi & ketajaman foto maksimal'}
+                </p>
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                {previewQuality === 'light'
-                  ? '⚡ Preview Ringan aktif: Hemat kuota internet & pemuatan foto lebih cepat'
-                  : '✨ Preview HD aktif: Tampilan resolusi tinggi & ketajaman foto maksimal'}
-              </p>
-            </div>
 
-            {/* Quality Segmented Control */}
-            <div className="flex items-center gap-1 bg-slate-100/90 p-1 rounded-xl border border-slate-200/60 self-start sm:self-auto">
-              <button
-                type="button"
-                onClick={() => handleQualityChange('light')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  previewQuality === 'light'
-                    ? 'bg-white text-blue-600 shadow-xs ring-1 ring-slate-900/5 font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-                }`}
-                title="Preview Ringan: Menghemat kuota dan memuat foto lebih cepat"
-              >
-                <Zap className={`w-3.5 h-3.5 ${previewQuality === 'light' ? 'fill-blue-600 text-blue-600' : 'text-slate-500'}`} />
-                <span>Preview Ringan</span>
-              </button>
+              {/* Quality Segmented Control & Search Input */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="relative w-full sm:w-56">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Cari foto..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-xs"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
 
-              <button
-                type="button"
-                onClick={() => handleQualityChange('hd')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  previewQuality === 'hd'
-                    ? 'bg-white text-indigo-600 shadow-xs ring-1 ring-slate-900/5 font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-                }`}
-                title="Preview HD: Resolusi lebih tinggi dan detail foto lebih tajam"
-              >
-                <Sparkles className={`w-3.5 h-3.5 ${previewQuality === 'hd' ? 'text-indigo-600' : 'text-slate-500'}`} />
-                <span>Preview HD</span>
-              </button>
-            </div>
-          </div>
-
-          {gallery.photos.length === 0 ? (
-            <div className="text-center py-20 bg-white border border-slate-200 rounded-3xl">
-              <ImageIcon className="w-12 h-12 text-slate-300 mx-auto mb-2" />
-              <h4 className="text-sm font-bold text-slate-800">Foto Sedang Disiapkan</h4>
-              <p className="text-xs text-slate-500 mt-1">
-                Studio sedang mengunggah foto ke Google Drive. Silakan segarkan halaman beberapa saat lagi.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-5 items-start">
-              {gallery.photos.map((photo, index) => {
-                const isSelected = selectedPhotoIds.includes(photo.driveFileId);
-                const note = photoNotes[photo.driveFileId];
-
-                return (
-                  <div
-                    key={photo.driveFileId}
-                    className={`bg-white border rounded-2xl overflow-hidden shadow-sm transition-all flex flex-col justify-between group ${
-                      isSelected
-                        ? 'border-rose-500 ring-2 ring-rose-500/20 shadow-md'
-                        : 'border-slate-200 hover:border-slate-300'
+                <div className="flex items-center gap-1 bg-slate-100/90 p-1 rounded-xl border border-slate-200/60 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => handleQualityChange('light')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      previewQuality === 'light'
+                        ? 'bg-white text-blue-600 shadow-xs ring-1 ring-slate-900/5 font-bold'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
                     }`}
                   >
-                    {/* Thumbnail Image */}
-                    {/* Thumbnail Image (Portrait 9:16) */}
-                    <div
-                      onClick={() => setPreviewIndex(index)}
-                      className="relative w-full aspect-[9/16] bg-slate-950 overflow-hidden flex items-center justify-center cursor-pointer rounded-t-2xl shrink-0"
-                      style={{ aspectRatio: '9 / 16', width: '100%' }}
-                    >
-                      {/* Ambient subtle blur backdrop */}
-                      <img
-                        src={getGalleryPhotoPreviewUrl(photo, previewQuality)}
-                        alt=""
-                        aria-hidden="true"
-                        className="absolute inset-0 w-full h-full object-cover opacity-25 filter blur-lg scale-110 pointer-events-none"
-                      />
-                      {/* 100% Uncropped Photo with object-contain */}
-                      <img
-                        src={getGalleryPhotoPreviewUrl(photo, previewQuality)}
-                        alt={photo.name}
-                        loading="lazy"
-                        onError={(e) => {
-                          const fallback = getGalleryPhotoFallbackUrl(photo, previewQuality);
-                          if (fallback && e.currentTarget.src !== fallback) {
-                            e.currentTarget.src = fallback;
-                          }
-                        }}
-                        className="relative z-10 max-w-full max-h-full w-full h-full transition-transform duration-300 group-hover:scale-[1.02]"
-                        style={{ objectFit: 'contain', objectPosition: 'center center' }}
-                      />
+                    <Zap className={`w-3.5 h-3.5 ${previewQuality === 'light' ? 'fill-blue-600 text-blue-600' : 'text-slate-500'}`} />
+                    <span>Preview Ringan</span>
+                  </button>
 
-                      {/* Favorite Heart Button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleFavorite(photo.driveFileId);
-                        }}
-                        className={`absolute top-2 right-2 p-2 rounded-full shadow-md transition-all active:scale-90 ${
-                          isSelected
-                            ? 'bg-rose-500 text-white'
-                            : 'bg-black/40 hover:bg-black/60 text-white/90'
-                        }`}
-                        title={isSelected ? 'Batalkan Pilihan' : 'Pilih Foto Favorit'}
-                      >
-                        <Heart className={`w-4 h-4 ${isSelected ? 'fill-current' : ''}`} />
-                      </button>
-
-                      {/* Quick Download Button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          downloadSinglePhoto(photo);
-                        }}
-                        className="absolute bottom-2 right-2 p-1.5 bg-black/40 hover:bg-black/70 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Unduh Foto Ini"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    {/* Bottom Details & Note */}
-                    <div className="p-3 space-y-1.5 bg-white">
-                      <p className="text-[11px] font-semibold text-slate-800 truncate" title={photo.name}>
-                        {photo.name}
-                      </p>
-
-                      {note ? (
-                        <div
-                          onClick={() => {
-                            setEditingNotePhotoId(photo.driveFileId);
-                            setActiveNoteText(note);
-                          }}
-                          className="p-1.5 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-900 cursor-pointer hover:bg-amber-100"
-                        >
-                          <p className="truncate">📝 "{note}"</p>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setEditingNotePhotoId(photo.driveFileId);
-                            setActiveNoteText('');
-                          }}
-                          className="text-[10px] font-medium text-slate-400 hover:text-blue-600 flex items-center gap-1"
-                        >
-                          <FileText className="w-3 h-3" /> + Tambah Catatan
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                  <button
+                    type="button"
+                    onClick={() => handleQualityChange('hd')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      previewQuality === 'hd'
+                        ? 'bg-white text-indigo-600 shadow-xs ring-1 ring-slate-900/5 font-bold'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                    }`}
+                  >
+                    <Sparkles className={`w-3.5 h-3.5 ${previewQuality === 'hd' ? 'text-indigo-600' : 'text-slate-500'}`} />
+                    <span>Preview HD</span>
+                  </button>
+                </div>
+              </div>
             </div>
-          )}
-        </div>
+
+            {allPhotos.length === 0 ? (
+              <div className="text-center py-20 bg-white border border-slate-200 rounded-3xl">
+                <ImageIcon className="w-12 h-12 text-slate-300 mx-auto mb-2" />
+                <h4 className="text-sm font-bold text-slate-800">Foto Sedang Disiapkan</h4>
+                <p className="text-xs text-slate-500 mt-1">
+                  Studio sedang mengunggah foto ke Google Drive. Silakan segarkan halaman beberapa saat lagi.
+                </p>
+              </div>
+            ) : filteredAllPhotos.length === 0 ? (
+              <div className="text-center py-16 px-4 bg-white border border-slate-200 rounded-3xl">
+                <Search className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                <h4 className="text-sm font-bold text-slate-800">Tidak Ada Foto yang Cocok</h4>
+                <p className="text-xs text-slate-500 mt-1 mb-4">
+                  Tidak ditemukan foto dengan nama "{searchQuery}".
+                </p>
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-all"
+                >
+                  Hapus Pencarian
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-5 items-start">
+                {filteredAllPhotos.map((photo, index) => renderPhotoCard(photo, index))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* TAB 2: STRUKTUR FOLDER */}
+        {/* ======================================================== */}
+        {activeTab === 'folders' && (
+          <div className="space-y-6">
+            {/* Breadcrumb Navigation Bar */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-wrap text-xs">
+                {currentFolderId !== null && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const parent = allFolders.find((f) => f.id === currentFolderObj?.parentId);
+                      setCurrentFolderId(parent ? parent.id : null);
+                    }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold transition-all border border-slate-200"
+                    title="Kembali ke folder sebelumnya"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Kembali</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentFolderId(null)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold transition-all ${
+                    currentFolderId === null
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Folder className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{gallery.albumName} (Root)</span>
+                </button>
+
+                {currentFolderObj && (
+                  <>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+                    <span className="px-2.5 py-1 bg-amber-50 text-amber-800 rounded-lg font-bold border border-amber-200/60 flex items-center gap-1.5">
+                      <Folder className="w-3.5 h-3.5 text-amber-600" />
+                      <span>{currentFolderObj.name}</span>
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {/* Quality Selector */}
+              <div className="flex items-center gap-1 bg-slate-100/90 p-1 rounded-xl border border-slate-200/60 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => handleQualityChange('light')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    previewQuality === 'light'
+                      ? 'bg-white text-blue-600 shadow-xs ring-1 ring-slate-900/5 font-bold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                  }`}
+                >
+                  <Zap className={`w-3.5 h-3.5 ${previewQuality === 'light' ? 'fill-blue-600 text-blue-600' : 'text-slate-500'}`} />
+                  <span>Preview Ringan</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleQualityChange('hd')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    previewQuality === 'hd'
+                      ? 'bg-white text-indigo-600 shadow-xs ring-1 ring-slate-900/5 font-bold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                  }`}
+                >
+                  <Sparkles className={`w-3.5 h-3.5 ${previewQuality === 'hd' ? 'text-indigo-600' : 'text-slate-500'}`} />
+                  <span>Preview HD</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Subfolders Grid */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                <Folder className="w-4 h-4 text-amber-500" />
+                <span>Daftar Subfolder ({currentLevelFolders.length})</span>
+              </h4>
+
+              {allFolders.length === 0 ? (
+                <div className="p-8 text-center bg-white border border-slate-200/80 rounded-2xl text-xs text-slate-500">
+                  <Folder className="w-8 h-8 text-slate-300 mx-auto mb-1.5" />
+                  <p className="font-semibold text-slate-700">Belum Ada Struktur Folder</p>
+                  <p className="text-slate-400 mt-0.5">Seluruh foto saat ini tersimpan langsung di direktori utama album.</p>
+                </div>
+              ) : currentLevelFolders.length === 0 ? (
+                <div className="p-6 text-center bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-500">
+                  <Folder className="w-8 h-8 text-slate-300 mx-auto mb-1.5" />
+                  <p>Belum ada subfolder di level ini.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {currentLevelFolders.map((folder) => (
+                    <FolderCard
+                      key={folder.id}
+                      folder={folder}
+                      readOnly={true}
+                      onOpen={(f) => setCurrentFolderId(f.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Photos Inside Current Folder Level */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                  <ImageIcon className="w-4 h-4 text-blue-500" />
+                  <span>
+                    Foto di {currentFolderObj ? `Folder "${currentFolderObj.name}"` : 'Direktori Utama'} (
+                    {currentLevelPhotos.length})
+                  </span>
+                </h4>
+              </div>
+
+              {currentLevelPhotos.length === 0 ? (
+                <div className="p-8 text-center bg-white border border-slate-200 rounded-2xl text-xs text-slate-500">
+                  <ImageIcon className="w-8 h-8 text-slate-300 mx-auto mb-1.5" />
+                  <p>Tidak ada foto langsung di dalam folder ini.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-5 items-start">
+                  {currentLevelPhotos.map((photo, index) => renderPhotoCard(photo, index))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* TAB 3: PILIHAN & CATATAN PELANGGAN */}
+        {/* ======================================================== */}
+        {activeTab === 'selections' && (
+          <div className="space-y-4">
+            <div className="bg-rose-50 border border-rose-200 rounded-3xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h4 className="text-xs font-bold text-rose-900 uppercase tracking-wider">
+                  Daftar Foto Favorit Pilihan Anda
+                </h4>
+                <p className="text-xs text-rose-700 mt-0.5">
+                  Anda telah memilih {selectedPhotosList.length} foto. Anda dapat mengunduh hanya foto terpilih atau mengirimkannya langsung ke studio melalui WhatsApp.
+                </p>
+              </div>
+
+              {selectedPhotosList.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={handleDownloadSelected}
+                    disabled={zipProgress.active}
+                    className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all shrink-0"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Foto Terpilih (ZIP)
+                  </button>
+
+                  <button
+                    onClick={handleSendSelectionToWhatsApp}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all shrink-0"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    Kirim ke WA Studio
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {selectedPhotosList.length === 0 ? (
+              <div className="text-center py-16 px-4 bg-white border border-slate-200 rounded-3xl">
+                <Heart className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <h4 className="text-sm font-bold text-slate-800">Belum Ada Foto Pilihan Favorit</h4>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
+                  Klik ikon hati pada foto yang Anda sukai untuk menyimpannya di sini dan menambahkan catatan cetak atau editing khusus.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-5 items-start">
+                {selectedPhotosList.map((photo, index) => renderPhotoCard(photo, index))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Floating Bottom Selection Bar */}

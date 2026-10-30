@@ -331,7 +331,7 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
                 className="bg-white border border-slate-200 hover:border-slate-300 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
               >
                 {/* Cover & Gallery ID Header (Portrait 9:16) */}
-                <div className="relative aspect-[9/16] w-full bg-slate-900 overflow-hidden flex items-center justify-center">
+                <div className="relative w-full aspect-[9/16] bg-slate-950 overflow-hidden flex items-center justify-center rounded-t-2xl shrink-0" style={{ aspectRatio: '9 / 16', width: '100%' }}>
                   {album.coverPhotoUrl || album.photos?.[0]?.thumbnailUrl ? (
                     <>
                       {/* Ambient blur backdrop for smooth uncropped aesthetic */}
@@ -345,7 +345,7 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
                       <img
                         src={album.coverPhotoUrl || album.photos?.[0]?.thumbnailUrl}
                         alt={album.albumName}
-                        className="relative z-1 max-w-full max-h-full w-full h-full object-contain object-center transition-transform duration-300 group-hover:scale-[1.02]"
+                        className="relative z-10 max-w-full max-h-full w-full h-full transition-transform duration-300 group-hover:scale-[1.02]" style={{ objectFit: 'contain', objectPosition: 'center center' }}
                       />
                     </>
                   ) : (
@@ -699,3 +699,4 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
     </div>
   );
 };
+

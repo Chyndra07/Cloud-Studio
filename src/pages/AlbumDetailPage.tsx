@@ -48,6 +48,7 @@ import {
   deleteDrivePhoto,
 } from '../services/googleDriveService';
 import { getPublicGalleryUrl } from '../config/appConfig';
+import { copyAlbumShareInfo } from '../services/shareHelper';
 import { downloadSinglePhoto, downloadPhotosAsZip } from '../services/downloadService';
 import { getGalleryPhotoPreviewUrl } from '../services/photoService';
 import { getClientSelection } from '../services/dbService';
@@ -523,11 +524,11 @@ export const AlbumDetailPage: React.FC<AlbumDetailPageProps> = ({
     }
   };
 
-  const handleCopyPublicUrl = () => {
-    const url = getPublicGalleryUrl(album.galleryId);
-    navigator.clipboard.writeText(url);
+  const handleCopyPublicUrl = async () => {
+    const result = await copyAlbumShareInfo(album);
     setCopyFeedback(true);
-    setTimeout(() => setCopyFeedback(false), 2000);
+    showNotice(result.notificationMessage);
+    setTimeout(() => setCopyFeedback(false), 2500);
   };
 
   // Photo Selection Toggles

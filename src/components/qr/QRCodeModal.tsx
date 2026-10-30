@@ -3,6 +3,7 @@ import { Copy, Check, Download, ExternalLink, Share2, Printer, Shield, AlertTria
 import { Modal } from '../common/Modal';
 import { Album, StudioProfile } from '../../types';
 import { getPublicGalleryUrl, isProductionUrlConfigured, isAiStudioHost, getFrontendPublicUrl } from '../../config/appConfig';
+import { copyAlbumShareInfo } from '../../services/shareHelper';
 import { generateGalleryQRDataUrl, generateBrandedQRCard } from '../../services/qrService';
 
 interface QRCodeModalProps {

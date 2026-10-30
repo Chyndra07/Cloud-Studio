@@ -17,6 +17,7 @@ import {
 import { Album, StudioProfile } from '../types';
 import { StorageQuotaInfo } from '../hooks/useStudioData';
 import { getPublicGalleryUrl } from '../config/appConfig';
+import { copyAlbumShareInfo } from '../services/shareHelper';
 
 interface DashboardPageProps {
   albums: Album[];
@@ -61,15 +62,34 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   const [copyFeedback, setCopyFeedback] = React.useState<string | null>(null);
 
-  const handleCopyLink = (galleryId: string) => {
-    const url = getPublicGalleryUrl(galleryId);
-    navigator.clipboard.writeText(url);
-    setCopyFeedback(galleryId);
-    setTimeout(() => setCopyFeedback(null), 2000);
+  const [copyNotice, setCopyNotice] = React.useState<string | null>(null);
+
+  const handleCopyAlbumInfo = async (targetAlbum: Album) => {
+    const result = await copyAlbumShareInfo(targetAlbum);
+    setCopyFeedback(targetAlbum.galleryId);
+    setCopyNotice(result.notificationMessage);
+    setTimeout(() => setCopyFeedback(null), 2500);
+    setTimeout(() => setCopyNotice((prev) => (prev === result.notificationMessage ? null : prev)), 4000);
   };
 
   return (
     <div className="space-y-8 pb-12">
+      {/* Floating Copy Feedback Toast */}
+      {copyNotice && (
+        <div className="fixed top-5 right-5 z-50 max-w-sm sm:max-w-md bg-slate-900/95 backdrop-blur-md text-white px-4 py-3 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center justify-between gap-3 text-xs font-semibold animate-fade-in">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{copyNotice}</span>
+          </div>
+          <button
+            onClick={() => setCopyNotice(null)}
+            className="p-1 text-slate-400 hover:text-white rounded-lg shrink-0"
+            title="Tutup Notifikasi"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
       {/* Welcome Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 rounded-3xl p-6 sm:p-8 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="space-y-2 max-w-xl">
@@ -323,8 +343,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     </button>
 
                     <button
-                      onClick={() => handleCopyLink(album.galleryId)}
-                      title="Salin Tautan Galeri"
+                      onClick={() => handleCopyAlbumInfo(album)}
+                      title="Salin Tautan Galeri & Informasi Album"
                       className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
                         copyFeedback === album.galleryId
                           ? 'bg-emerald-600 text-white'

@@ -93,12 +93,26 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
   // Copy notification alert toast banner
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
-  const handleCopyAlbumInfo = async (targetAlbum: Album) => {
-    const result = await copyAlbumShareInfo(targetAlbum);
-    setCopyFeedback(targetAlbum.galleryId);
-    setCopyNotice(result.notificationMessage);
-    setTimeout(() => setCopyFeedback(null), 2500);
-    setTimeout(() => setCopyNotice((prev) => (prev === result.notificationMessage ? null : prev)), 4000);
+  const handleCopyAlbumInfo = async (targetAlbum: Album, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!targetAlbum) return;
+
+    try {
+      const result = await copyAlbumShareInfo(targetAlbum);
+      setCopyFeedback(targetAlbum.galleryId || targetAlbum.albumId);
+      setCopyNotice(result.notificationMessage);
+      setTimeout(() => setCopyFeedback(null), 2500);
+      setTimeout(() => {
+        setCopyNotice((prev) => (prev === result.notificationMessage ? null : prev));
+      }, 4000);
+    } catch (err) {
+      console.error('[ALBUMS] Copy error:', err);
+      setCopyNotice('Terjadi kesalahan saat menyalin informasi galeri.');
+      setTimeout(() => setCopyNotice(null), 4000);
+    }
   };
 
   const getRemainingDays = (expDateString: string) => {
@@ -465,7 +479,7 @@ export const AlbumsPage: React.FC<AlbumsPageProps> = ({
                     </button>
 
                     <button
-                      onClick={() => handleCopyAlbumInfo(album)}
+                      onClick={(e) => handleCopyAlbumInfo(album, e)}
                       title="Salin Tautan Galeri & Informasi Album"
                       className={`p-2 rounded-xl text-xs transition-all border ${
                         copyFeedback === album.galleryId

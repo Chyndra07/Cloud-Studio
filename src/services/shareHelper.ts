@@ -30,7 +30,7 @@ export function formatIndonesianDate(dateString?: string): string {
 }
 
 /**
- * Generates the standardized Album Share Information string:
+ * Generates the standardized Album Share Information string with safe null guards:
  * 
  * A. Jika Album Menggunakan PIN:
  * Nama Album: coba 1
@@ -49,8 +49,20 @@ export function formatIndonesianDate(dateString?: string): string {
  * Status: Aktif
  * Berlaku Hingga: 30 Oktober 2027
  */
-export function formatAlbumShareInfo(album: Album): AlbumShareInfo {
-  const galleryUrl = getPublicGalleryUrl(album.galleryId);
+export function formatAlbumShareInfo(album?: Album | null): AlbumShareInfo {
+  if (!album) {
+    return {
+      text: '',
+      hasPin: false,
+      notificationMessage: 'Data album tidak valid.',
+      daysLeft: 0,
+      status: 'Aktif',
+      masaAktifText: 'Tidak Terbatas',
+    };
+  }
+
+  const cleanGalleryId = (album.galleryId || '').trim();
+  const galleryUrl = cleanGalleryId ? getPublicGalleryUrl(cleanGalleryId) : '';
   const hasPin = Boolean(album.isPinEnabled && album.pin && album.pin.trim().length > 0);
 
   // Expiration & Active Period calculations
@@ -115,41 +127,64 @@ export function formatAlbumShareInfo(album: Album): AlbumShareInfo {
 }
 
 /**
- * Copies the standardized Album Share Information to clipboard with multi-environment fallback.
+ * Copies the standardized Album Share Information to clipboard with robust 2-tier fallback.
  */
-export async function copyAlbumShareInfo(album: Album): Promise<{
+export async function copyAlbumShareInfo(album?: Album | null): Promise<{
   success: boolean;
   hasPin: boolean;
   notificationMessage: string;
   text: string;
 }> {
+  if (!album) {
+    return {
+      success: false,
+      hasPin: false,
+      notificationMessage: 'Data album tidak tersedia.',
+      text: '',
+    };
+  }
+
   const shareInfo = formatAlbumShareInfo(album);
-  try {
-    if (navigator?.clipboard?.writeText) {
+  let copied = false;
+
+  // 1. Try modern navigator.clipboard.writeText
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
       await navigator.clipboard.writeText(shareInfo.text);
-    } else {
+      copied = true;
+    } catch (clipErr) {
+      console.warn('[SHARE_HELPER] navigator.clipboard.writeText failed, attempting execCommand fallback:', clipErr);
+    }
+  }
+
+  // 2. Fallback to execCommand if clipboard API was unavailable or threw error
+  if (!copied && typeof document !== 'undefined') {
+    try {
       const textarea = document.createElement('textarea');
       textarea.value = shareInfo.text;
       textarea.style.position = 'fixed';
       textarea.style.left = '-9999px';
+      textarea.style.top = '-9999px';
+      textarea.style.opacity = '0';
       document.body.appendChild(textarea);
+      textarea.focus();
       textarea.select();
-      document.execCommand('copy');
+      const successful = document.execCommand('copy');
       document.body.removeChild(textarea);
+      if (successful) {
+        copied = true;
+      }
+    } catch (fallbackErr) {
+      console.warn('[SHARE_HELPER] execCommand fallback also failed:', fallbackErr);
     }
-    return {
-      success: true,
-      hasPin: shareInfo.hasPin,
-      notificationMessage: shareInfo.notificationMessage,
-      text: shareInfo.text,
-    };
-  } catch (err) {
-    console.warn('[SHARE_HELPER] Failed to copy to clipboard:', err);
-    return {
-      success: false,
-      hasPin: shareInfo.hasPin,
-      notificationMessage: shareInfo.notificationMessage,
-      text: shareInfo.text,
-    };
   }
+
+  return {
+    success: copied,
+    hasPin: shareInfo.hasPin,
+    notificationMessage: copied
+      ? shareInfo.notificationMessage
+      : 'Gagal menyalin otomatis ke clipboard. Tautan: ' + (shareInfo.text.split('\n')[2] || ''),
+    text: shareInfo.text,
+  };
 }

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   FolderKanban,
   CheckCircle,
@@ -13,6 +13,9 @@ import {
   ArrowRight,
   Shield,
   Calendar,
+  Check,
+  CheckCircle2,
+  X,
 } from 'lucide-react';
 import { Album, StudioProfile } from '../types';
 import { StorageQuotaInfo } from '../hooks/useStudioData';
@@ -60,16 +63,29 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     return `${gb.toFixed(2)} GB`;
   };
 
-  const [copyFeedback, setCopyFeedback] = React.useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
-  const [copyNotice, setCopyNotice] = React.useState<string | null>(null);
+  const handleCopyAlbumInfo = async (targetAlbum: Album, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!targetAlbum) return;
 
-  const handleCopyAlbumInfo = async (targetAlbum: Album) => {
-    const result = await copyAlbumShareInfo(targetAlbum);
-    setCopyFeedback(targetAlbum.galleryId);
-    setCopyNotice(result.notificationMessage);
-    setTimeout(() => setCopyFeedback(null), 2500);
-    setTimeout(() => setCopyNotice((prev) => (prev === result.notificationMessage ? null : prev)), 4000);
+    try {
+      const result = await copyAlbumShareInfo(targetAlbum);
+      setCopyFeedback(targetAlbum.galleryId || targetAlbum.albumId);
+      setCopyNotice(result.notificationMessage);
+      setTimeout(() => setCopyFeedback(null), 2500);
+      setTimeout(() => {
+        setCopyNotice((prev) => (prev === result.notificationMessage ? null : prev));
+      }, 4000);
+    } catch (err) {
+      console.error('[DASHBOARD] Copy error:', err);
+      setCopyNotice('Terjadi kesalahan saat menyalin informasi galeri.');
+      setTimeout(() => setCopyNotice(null), 4000);
+    }
   };
 
   return (
@@ -343,17 +359,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     </button>
 
                     <button
-                      onClick={() => handleCopyAlbumInfo(album)}
+                      onClick={(e) => handleCopyAlbumInfo(album, e)}
                       title="Salin Tautan Galeri & Informasi Album"
                       className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                        copyFeedback === album.galleryId
-                          ? 'bg-emerald-600 text-white'
+                        copyFeedback === (album.galleryId || album.albumId)
+                          ? 'bg-emerald-600 text-white shadow-sm'
                           : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                       }`}
                     >
-                      <Copy className="w-4 h-4" />
+                      {copyFeedback === (album.galleryId || album.albumId) ? (
+                        <Check className="w-4 h-4 text-white" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
                       <span className="hidden md:inline">
-                        {copyFeedback === album.galleryId ? 'Tersalin' : 'Salin'}
+                        {copyFeedback === (album.galleryId || album.albumId) ? 'Tersalin' : 'Salin'}
                       </span>
                     </button>
 

@@ -8,7 +8,6 @@ export interface AlbumShareInfo {
   daysLeft: number;
   status: 'Aktif' | 'Segera Berakhir' | 'Kedaluwarsa';
   masaAktifText: string;
-  berlakuHinggaText?: string;
 }
 
 /**
@@ -30,24 +29,23 @@ export function formatIndonesianDate(dateString?: string): string {
 }
 
 /**
- * Generates the standardized Album Share Information string with safe null guards:
+ * Generates the standardized Album Share Information string strictly adhering to user specifications:
  * 
  * A. Jika Album Menggunakan PIN:
- * Nama Album: coba 1
- * Nama Pelanggan: nanda
  * Link Galeri: https://domain.com/#/gallery/GFQ-N7D97B
  * PIN Galeri: 1234
  * Masa Aktif: 365 Hari
- * Status: Aktif
- * Berlaku Hingga: 30 Oktober 2027
  * 
  * B. Jika Album Tidak Menggunakan PIN:
- * Nama Album: coba 1
- * Nama Pelanggan: nanda
  * Link Galeri: https://domain.com/#/gallery/GFQ-N7D97B
  * Masa Aktif: 365 Hari
- * Status: Aktif
- * Berlaku Hingga: 30 Oktober 2027
+ * 
+ * Kondisi Khusus Masa Aktif:
+ * - Aktif: ${daysLeft} Hari (misal: 60 Hari)
+ * - Segera Berakhir: ${daysLeft} Hari
+ * - Kedaluwarsa: Kedaluwarsa
+ * - Tanpa batas: Tidak Terbatas
+ * - Tidak tersedia: Tidak Tersedia
  */
 export function formatAlbumShareInfo(album?: Album | null): AlbumShareInfo {
   if (!album) {
@@ -57,7 +55,7 @@ export function formatAlbumShareInfo(album?: Album | null): AlbumShareInfo {
       notificationMessage: 'Data album tidak valid.',
       daysLeft: 0,
       status: 'Aktif',
-      masaAktifText: 'Tidak Terbatas',
+      masaAktifText: 'Tidak Tersedia',
     };
   }
 
@@ -69,19 +67,23 @@ export function formatAlbumShareInfo(album?: Album | null): AlbumShareInfo {
   let daysLeft = 0;
   let status: 'Aktif' | 'Segera Berakhir' | 'Kedaluwarsa' = 'Aktif';
   let masaAktifText = 'Tidak Terbatas';
-  let berlakuHinggaText = '';
 
-  if (album.expirationDate) {
+  if (!album.expirationDate || album.expirationDate.trim() === '') {
+    masaAktifText = 'Tidak Terbatas';
+    status = 'Aktif';
+  } else {
     const expTime = new Date(album.expirationDate).getTime();
-    if (!isNaN(expTime)) {
+    if (isNaN(expTime)) {
+      masaAktifText = 'Tidak Tersedia';
+      status = 'Aktif';
+    } else {
       const diff = expTime - Date.now();
       daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
-      berlakuHinggaText = formatIndonesianDate(album.expirationDate);
 
-      if (diff <= 0) {
+      if (diff <= 0 || daysLeft <= 0) {
         status = 'Kedaluwarsa';
         daysLeft = 0;
-        masaAktifText = '0 Hari';
+        masaAktifText = 'Kedaluwarsa';
       } else if (diff <= 3 * 24 * 60 * 60 * 1000) {
         status = 'Segera Berakhir';
         masaAktifText = `${daysLeft} Hari`;
@@ -92,10 +94,11 @@ export function formatAlbumShareInfo(album?: Album | null): AlbumShareInfo {
     }
   }
 
-  // Construct lines adhering strictly to specification
+  // Construct lines strictly matching specification:
+  // 1. Link Galeri
+  // 2. PIN Galeri (only if using PIN)
+  // 3. Masa Aktif
   const lines: string[] = [
-    `Nama Album: ${album.albumName || '-'}`,
-    `Nama Pelanggan: ${album.clientName || '-'}`,
     `Link Galeri: ${galleryUrl}`,
   ];
 
@@ -104,16 +107,11 @@ export function formatAlbumShareInfo(album?: Album | null): AlbumShareInfo {
   }
 
   lines.push(`Masa Aktif: ${masaAktifText}`);
-  lines.push(`Status: ${status}`);
-
-  if (berlakuHinggaText) {
-    lines.push(`Berlaku Hingga: ${berlakuHinggaText}`);
-  }
 
   const text = lines.join('\n');
   const notificationMessage = hasPin
-    ? 'Informasi galeri berhasil disalin, termasuk PIN dan masa aktif album.'
-    : 'Link dan informasi masa aktif galeri berhasil disalin.';
+    ? 'Link galeri berhasil disalin, termasuk PIN dan masa aktif album.'
+    : 'Link galeri dan informasi masa aktif berhasil disalin.';
 
   return {
     text,
@@ -122,7 +120,6 @@ export function formatAlbumShareInfo(album?: Album | null): AlbumShareInfo {
     daysLeft,
     status,
     masaAktifText,
-    berlakuHinggaText,
   };
 }
 
@@ -184,7 +181,7 @@ export async function copyAlbumShareInfo(album?: Album | null): Promise<{
     hasPin: shareInfo.hasPin,
     notificationMessage: copied
       ? shareInfo.notificationMessage
-      : 'Gagal menyalin otomatis ke clipboard. Tautan: ' + (shareInfo.text.split('\n')[2] || ''),
+      : 'Gagal menyalin tautan galeri ke clipboard.',
     text: shareInfo.text,
   };
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Menu, HardDrive, ShieldCheck, RefreshCw } from 'lucide-react';
+import { Plus, Menu, HardDrive, ShieldCheck, RefreshCw, Smartphone } from 'lucide-react';
 import { StudioProfile } from '../../types';
 
 interface NavbarProps {
@@ -11,6 +11,8 @@ interface NavbarProps {
   onRefresh: () => void;
   onToggleMobileMenu: () => void;
   isRefreshing?: boolean;
+  canInstallPWA?: boolean;
+  onInstallPWA?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -22,6 +24,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onRefresh,
   onToggleMobileMenu,
   isRefreshing,
+  canInstallPWA,
+  onInstallPWA,
 }) => {
   return (
     <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-6 py-4 flex items-center justify-between">
@@ -39,7 +43,19 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5 sm:gap-3">
+        {canInstallPWA && onInstallPWA && (
+          <button
+            onClick={onInstallPWA}
+            title="Pasang Aplikasi SevenCloud di Layar Utama"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-xl text-xs font-semibold shadow-xs transition-all active:scale-95"
+          >
+            <Smartphone className="w-4 h-4 text-blue-600 shrink-0" />
+            <span className="hidden sm:inline">Pasang Aplikasi</span>
+            <span className="sm:hidden">Instal</span>
+          </button>
+        )}
+
         <button
           onClick={onRefresh}
           disabled={isRefreshing}

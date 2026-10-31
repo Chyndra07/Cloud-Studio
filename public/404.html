@@ -2,15 +2,18 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GaleriFotoQR</title>
+  <title>GaleriFotoQR Cloud Studio — SevenCloud</title>
 
   <script>
     (function () {
       var path = window.location.pathname;
       var search = window.location.search;
       var hash = window.location.hash;
+      var hostname = window.location.hostname;
 
-      var base = '/Cloud-Studio/';
+      // On custom domain sevencloud.my.id, base is '/'.
+      // On legacy project pages *.github.io, base is '/Cloud-Studio/'.
+      var base = hostname.endsWith('.github.io') ? '/Cloud-Studio/' : '/';
 
       if (path.indexOf(base) === 0) {
         var route = path.substring(base.length);
@@ -20,8 +23,20 @@
           '/' + route + search + hash
         );
 
+        // If it's a gallery route like /gallery/GFQ-XXXX, redirect directly with hash for instant client routing
+        if (route.indexOf('gallery/') === 0) {
+          window.location.replace(base + '#/' + route + search);
+          return;
+        }
+
         window.location.replace(base);
       } else {
+        if (path.indexOf('/gallery/') >= 0) {
+          var gIdx = path.indexOf('/gallery/');
+          var subRoute = path.substring(gIdx + 1);
+          window.location.replace(base + '#/' + subRoute + search + hash);
+          return;
+        }
         window.location.replace(base);
       }
     })();

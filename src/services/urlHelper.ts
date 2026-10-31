@@ -12,7 +12,7 @@
  */
 
 export const PUBLIC_APP_ORIGIN =
-  'https://chyndra07.github.io/Cloud-Studio';
+  'https://sevencloud.my.id';
 
 export const FALLBACK_PRODUCTION_URL = PUBLIC_APP_ORIGIN;
 
@@ -290,7 +290,7 @@ export function getAppBaseUrl(customDomain?: string): string {
  *
  * /Cloud-Studio/gallery/GFQ-XXXX
  */
-function extractGalleryIdFromPath(
+export function extractGalleryIdFromPath(
   pathname: string
 ): string {
   if (!pathname) return '';

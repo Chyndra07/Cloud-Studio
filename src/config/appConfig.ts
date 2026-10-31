@@ -12,7 +12,7 @@ export const DEFAULT_CUSTOMER_ALBUMS_FOLDER = 'Album Pelanggan';
 /**
  * Default production frontend repository host (GitHub Pages).
  */
-export const DEFAULT_PRODUCTION_FRONTEND_URL = 'https://chyndra07.github.io/Cloud-Studio';
+export const DEFAULT_PRODUCTION_FRONTEND_URL = 'https://sevencloud.my.id';
 
 /**
  * Checks if a given URL or hostname belongs to Google AI Studio editor/preview/cloud-dev environment.

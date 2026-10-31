@@ -16,6 +16,8 @@ import { SettingsPage } from './pages/SettingsPage';
 import { PublicGalleryPage } from './pages/PublicGalleryPage';
 import { LicenseGuard } from './license/LicenseGuard';
 import { applyTypography } from './services/typographyService';
+import { extractGalleryIdFromPath } from './services/urlHelper';
+import { subscribeToInstallPrompt, promptPWAInstall } from './services/pwaService';
 import {
   Camera,
   HardDrive,
@@ -26,6 +28,7 @@ import {
   Lock,
   ArrowRight,
   AlertCircle,
+  Smartphone,
 } from 'lucide-react';
 
 export default function App() {
@@ -42,10 +45,31 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Determine if URL is a Public Gallery route (e.g. #/gallery/GFQ-XXXXXX)
+  // PWA Install Prompt State
+  const [canInstallPWA, setCanInstallPWA] = useState<boolean>(false);
+
+  useEffect(() => {
+    return subscribeToInstallPrompt((eligible) => {
+      setCanInstallPWA(eligible);
+    });
+  }, []);
+
+  // Determine if URL is a Public Gallery route (supports #/gallery/GFQ-XXX, /gallery/GFQ-XXX, and GitHub Pages)
   const publicGalleryId = useMemo(() => {
     const match = currentHash.match(/^#\/gallery\/([A-Za-z0-9\-_]+)/);
-    return match ? match[1] : null;
+    if (match) return match[1];
+
+    if (typeof window !== 'undefined') {
+      const fromPath = extractGalleryIdFromPath(window.location.pathname);
+      if (fromPath) return fromPath;
+
+      const savedRoute = sessionStorage.getItem('github-pages-route');
+      if (savedRoute) {
+        const fromSaved = extractGalleryIdFromPath(savedRoute);
+        if (fromSaved) return fromSaved;
+      }
+    }
+    return null;
   }, [currentHash]);
 
   // Auth Hook
@@ -196,6 +220,15 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                  {canInstallPWA && (
+                    <button
+                      onClick={() => promptPWAInstall()}
+                      className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 rounded-xl text-xs font-semibold transition-all inline-flex items-center gap-1.5 active:scale-95 shadow-sm"
+                    >
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>Pasang Aplikasi</span>
+                    </button>
+                  )}
                   <button
                     onClick={openDeveloperPanel}
                     className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 rounded-xl text-xs font-semibold transition-all"
@@ -268,6 +301,17 @@ export default function App() {
                     <ArrowRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
                   </button>
 
+                  {/* Android PWA Quick Install Button */}
+                  {canInstallPWA && (
+                    <button
+                      onClick={() => promptPWAInstall()}
+                      className="w-full flex items-center justify-center gap-2.5 py-3 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-2xl text-xs font-bold shadow-lg shadow-blue-500/20 transition-all active:scale-95"
+                    >
+                      <Smartphone className="w-4 h-4 shrink-0" />
+                      <span>Pasang Aplikasi Android (SevenCloud)</span>
+                    </button>
+                  )}
+
                   <p className="text-[11px] text-slate-500 leading-relaxed">
                     Dengan masuk, aplikasi akan meminta izin untuk membuat folder dan mengunggah foto ke Google Drive studio Anda secara aman.
                   </p>
@@ -299,23 +343,23 @@ export default function App() {
                     <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
                       <Globe className="w-4 h-4" />
                     </div>
-                    <h4 className="text-xs font-bold text-white">GitHub Pages Ready</h4>
+                    <h4 className="text-xs font-bold text-white">Portal Tamu Instan</h4>
                     <p className="text-xs text-slate-400 leading-relaxed">
-                      Hash routing teruji 100% bebas 404 pada hosting statis maupun domain sendiri.
+                      Pelanggan scan QR untuk membuka galeri tanpa registrasi atau unduh aplikasi pihak ketiga.
                     </p>
                   </div>
                 </div>
               </main>
 
-              {/* Footer */}
-              <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500">
-                GaleriFotoQR Cloud Studio • Solusi Manajemen Galeri Digital Studio Foto
+              {/* Minimal Footer */}
+              <footer className="border-t border-slate-900 px-6 py-6 text-center text-xs text-slate-600">
+                <p>GaleriFotoQR Cloud Studio (SevenCloud) &copy; 2026. Hak cipta dilindungi.</p>
               </footer>
             </div>
           );
         }
 
-        // Authenticated Studio Admin Dashboard
+        // Authenticated Studio View
         return (
           <div className="min-h-screen bg-slate-50 flex text-slate-900">
             {/* Desktop Sidebar */}
@@ -352,6 +396,8 @@ export default function App() {
                 onRefresh={refreshData}
                 onToggleMobileMenu={() => setIsMobileNavOpen(true)}
                 isRefreshing={isDataLoading}
+                canInstallPWA={canInstallPWA}
+                onInstallPWA={promptPWAInstall}
               />
 
               <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto flex-1">
@@ -421,15 +467,14 @@ export default function App() {
                 {currentTab === 'settings' && (
                   <SettingsPage
                     profile={profile}
+                    onUpdateProfile={updateProfile}
+                    user={user}
                     quota={quota}
                     isDriveConnected={isDriveConnected}
-                    albums={albums}
-                    license={license}
                     onConnectDrive={connectDrive}
-                    onRefreshData={refreshData}
+                    license={license}
                     onRefreshLicense={refreshLicense}
-                    onOpenDeveloperPanel={openDeveloperPanel}
-                    onUpdateProfile={updateProfile}
+                    onOpenDevPanel={openDeveloperPanel}
                   />
                 )}
               </main>
